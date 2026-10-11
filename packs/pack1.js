@@ -25,11 +25,15 @@ window.KOKORYO_PACKS.pack1={
   CSSR5:{id:'CSSR5',name:'伝説の勝負師',rarity:'SSR',synthesisOnly:true,chosenDice:2,hireBread:1,abilityText:commandOnHire+'好きな出目の実サイコロ2個を獲得。'},
   CSR6:{id:'CSR6',name:'メイド',rarity:'SR',hireChooseResource:3,hireOnly:true,hireBread:1,noCommonDie:true,abilityText:'雇用時：命令書1枚。好きな1種類の資源を3個獲得。'},
   CSSR6:{id:'CSSR6',name:'メイド長',rarity:'SSR',hireFreeResourceTotal:3,hireOnly:true,hireBread:1,noCommonDie:true,abilityText:'雇用時：命令書1枚。好きな資源を合計3個、自由に振り分けて獲得。'},
+  CN5:{id:'CN5',name:'プロレタリア',rarity:'N',noCommonDie:true,financeIncome:{self:2,others:0,debt:0},abilityText:'ターン開始時、資金2を獲得する。'},
+  CR5:{id:'CR5',name:'ブルジョワ',rarity:'R',financeIncome:{self:3,others:1,debt:0},abilityText:'ターン開始時、自分は資金3を獲得する。自分以外の全プレイヤーは資金1を獲得する。'},
+  CSR7:{id:'CSR7',name:'プレジデント',rarity:'SR',synthesisOnly:true,financeIncome:{self:3,others:2,debt:1},abilityText:'ターン開始時、自分は資金3を獲得する。自分以外の全プレイヤーは資金2と負債1枚を獲得する。'},
+  CSSR7:{id:'CSSR7',name:'タイクーン',rarity:'SSR',synthesisOnly:true,financeIncome:{self:4,others:2,debt:1},abilityText:'ターン開始時、自分は資金4を獲得する。自分以外の全プレイヤーは資金2と負債1枚を獲得する。'},
   CUR7:{id:'CUR7',name:'リラ',title:'創造の大魔術師',rarity:'UR',uniqueAbility:'リクリエイション',chooseDie:true,personKey:'lira'},
   CUR8:{id:'CUR8',name:'ゴルド',title:'金・暴力・欲望',rarity:'UR',uniqueAbility:'無限の黄金',chooseDie:true,personKey:'gold'},
   CUR9:{id:'CUR9',name:'榎 奏音',title:'もう1人の転移者',rarity:'UR',uniqueAbility:'神の恩恵',chooseDie:true,personKey:'kanon'}
  },
- castIds:['CN4','CR4','CSR5','CSSR5','CSR6','CSSR6','CUR7','CUR8','CUR9'],
+ castIds:['CN4','CR4','CSR5','CSSR5','CSR6','CSSR6','CN5','CR5','CSR7','CSSR7','CUR7','CUR8','CUR9'],
  normalCards:[
   {key:'N16',name:'人員削減',type:'N',vp:1,implemented:true,costText:'🎲ANY×2',effectText:'設置：任意のサイコロ2個。1ターンに1回、資金1・食料1・兵力1を支払い、同レアリティの雇用キャラクター2人を捨て、1段階上をランダム雇用。SSR×2→UR。URは素材不可。',installSpec:{any:2},fieldAction:{type:'promoteCastPair',cost:{y:1,p:1,r:1}}},
   {key:'N17',name:'借り入れ',type:'N',vp:1,implemented:true,costText:'🎲1/2＋資金3',effectText:'ターン開始時：負債1枚。1ターンに1回、負債1枚を捨てて資金2。',installSpec:{faces:[[1,2]],resources:{y:3}},hooks:{turnStart:({owner,api})=>api.addDebt(owner,1)}},
