@@ -5,6 +5,7 @@ function pay(api,p,cost){for(const k of ['y','p','r'])if((api.powers[p]?.[k]||0)
 function clearAllDebt(api){for(let p=0;p<api.playerCount;p++)api.clearDebt(p)}
 window.KOKORYO_PACKS.pack1={
  id:'pack1',name:'追加パック1',
+ castSynthesis:{CN4:'CR4',CR4:'CSR5',CSR5:'CSSR5',CN5:'CR5',CR5:'CSR7',CSR7:'CSSR7'},
  characters:{
   P13:{name:'ジュネ',title:'天使見習い',gender:'男性',group:'june',selectLabel:'ジュネ',uniqueAbility:'リクリエイション'},
   P14:{name:'ジュネ',title:'天使見習い',gender:'女性',group:'june',selectLabel:'ジュネ',uniqueAbility:'リクリエイション'},
