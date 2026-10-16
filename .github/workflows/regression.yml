@@ -2,9 +2,9 @@ name: Game regression tests
 on:
   push:
     branches: [main, feature/turn-chess-clock]
-    paths: ['index.html', 'packs/**', 'tests/**', 'package*.json', '.github/workflows/regression.yml']
+    paths: ['index.html', 'src/**', 'js/**', 'tools/**', 'packs/**', 'tests/**', 'package*.json', '.github/workflows/regression.yml']
   pull_request:
-    paths: ['index.html', 'packs/**', 'tests/**', 'package*.json', '.github/workflows/regression.yml']
+    paths: ['index.html', 'src/**', 'js/**', 'tools/**', 'packs/**', 'tests/**', 'package*.json', '.github/workflows/regression.yml']
 permissions:
   contents: read
 jobs:

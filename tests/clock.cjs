@@ -8,7 +8,7 @@ window.__clockTest={run:code=>eval(code),tick:turnClockTick,expire:turnClockExpi
 `;
 async function fixture(t,options={}){
  let now=0,id=0;const jobs=new Map(),errors=[];
- let html=fs.readFileSync(path.join(root,'index.html'),'utf8').replace('\n})();\nconst q=s=>document.querySelector(s);',bridge+'\n})();\nconst q=s=>document.querySelector(s);');
+ let html=require('../tools/build.cjs').inlineHtml(root).replace('\n})();\nconst q=s=>document.querySelector(s);',bridge+'\n})();\nconst q=s=>document.querySelector(s);');
  if(options.futureBaseThree)html=html.replaceAll('1+bonus','3+bonus');
  const vc=new VirtualConsole();vc.on('jsdomError',e=>errors.push(e.message));
  const dom=new JSDOM(html,{

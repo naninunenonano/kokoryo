@@ -6,7 +6,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const vm=require('node:vm');
 const root=path.resolve(__dirname,'..');
-const html=fs.readFileSync(path.join(root,'index.html'),'utf8');
+const html=require('../tools/build.cjs').inlineHtml(root);
 function fn(name){
  const match=new RegExp(`^(?:async )?function ${name}\\(`,'m').exec(html);
  assert.ok(match,`Missing production function: ${name}`);

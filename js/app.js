@@ -1,0 +1,3793 @@
+
+(()=>{
+const q=s=>document.querySelector(s), mk=(pre,label,n)=>Array.from({length:n},(_,i)=>({key:pre+(i+1),name:label+(i+1),type:pre})), copies=a=>a.flatMap(c=>Array.from({length:4},(_,i)=>({...c,id:c.key+'-'+(i+1)})));
+// コンテンツ内部IDの予約範囲。未実装IDの空データは作らず、追加パックから必要なIDだけ登録する。
+const CONTENT_ID_LIMITS=Object.freeze({S:10,N:200,LL:30,LU:30,P:100,CN:30,CR:30,CSR:30,CSSR:30,CUR:30,CLR:30,RC:100});
+function isReservedContentId(id){
+ const m=String(id||'').match(/^(CSSR|CSR|CUR|CN|CR|LL|LU|RC|S|N|P)(\d+)$/);
+ return !!(m&&+m[2]>=1&&+m[2]<=CONTENT_ID_LIMITS[m[1]]);
+}
+const CHARACTER_DATA={
+ P1:{name:'築友城 トキ',title:'新米領主',gender:'男性',group:'hero',selectLabel:'トキ／さくら',uniqueAbility:'神の贈り物'},
+ P2:{name:'築友城 さくら',title:'新米領主',gender:'女性',group:'hero',selectLabel:'トキ／さくら',uniqueAbility:'神の贈り物'},
+ P3:{name:'トリスメギストス',title:'錬金術師',gender:'男性',group:'trismegistus',selectLabel:'トリスメギストス',uniqueAbility:'等価交換'},
+ P4:{name:'トリスメギストス',title:'錬金術師',gender:'女性',group:'trismegistus',selectLabel:'トリスメギストス',uniqueAbility:'等価交換'},
+ P5:{name:'リアン',title:'天才軍師',gender:'男性',group:'lian',selectLabel:'リアン',uniqueAbility:'神算鬼謀'},
+ P6:{name:'リアン',title:'天才軍師',gender:'女性',group:'lian',selectLabel:'リアン',uniqueAbility:'神算鬼謀'},
+ P7:{name:'シエル',title:'おねだり上手',gender:'男性',group:'ciel',selectLabel:'シエル',uniqueAbility:'おねだり'},
+ P8:{name:'シエル',title:'おねだり上手',gender:'女性',group:'ciel',selectLabel:'シエル',uniqueAbility:'おねだり'},
+ P9:{name:'レイン',title:'天才技師',gender:'男性',group:'rain',selectLabel:'レイン',uniqueAbility:'オーバークロック'},
+ P10:{name:'レイン',title:'天才技師',gender:'女性',group:'rain',selectLabel:'レイン',uniqueAbility:'オーバークロック'},
+ P11:{name:'ヴァレンタイン',title:'天才商人',gender:'男性',group:'valentine',selectLabel:'ヴァレンタイン',uniqueAbility:'神の見えざる手'},
+ P12:{name:'ヴァレンタイン',title:'天才商人',gender:'女性',group:'valentine',selectLabel:'ヴァレンタイン',uniqueAbility:'神の見えざる手'}
+};
+const CHARACTER_FAMILIES=[
+ {id:'hero',label:'トキ／さくら',versions:[
+  {id:'rookie',label:'新米領主',male:'P1',female:'P2'}
+ ]},
+ {id:'trismegistus',label:'トリスメギストス',versions:[
+  {id:'alchemist',label:'錬金術師',male:'P3',female:'P4'}
+ ]},
+ {id:'lian',label:'リアン',versions:[
+  {id:'strategist',label:'天才軍師',male:'P5',female:'P6'}
+ ]},
+ {id:'ciel',label:'シエル',versions:[
+  {id:'beggar',label:'おねだり上手',male:'P7',female:'P8'}
+ ]},
+ {id:'rain',label:'レイン',versions:[
+  {id:'engineer',label:'天才技師',male:'P9',female:'P10'}
+ ]},
+ {id:'valentine',label:'ヴァレンタイン',versions:[
+  {id:'merchant',label:'天才商人',male:'P11',female:'P12'}
+ ]}
+];
+// Ver.0.3.77: 固有能力は本体で一元管理。追加パックは uniqueAbility 名だけを宣言する。
+const UNIQUE_ABILITY_DEFS=Object.freeze({
+ '神の贈り物':{text:'ターン開始時に振るサイコロを1つ増やす。ターン開始時に好きな資源を1つ獲得する。',props:{extraDice:1,extraLordResource:1,chooseResource:true,amount:1}},
+ '等価交換':{stackable:false,text:'好きな資源1つを、別の好きな資源1つに交換できる。',props:{exchangeRate:1}},
+ '神算鬼謀':{text:'ターン開始時に命令書を1枚獲得する。この能力が初めて発動するとき、追加で命令書を2枚獲得する。',props:{turnBread:1,firstBreadBonus:2}},
+ 'おねだり':{text:'通常カードを設置するとき、必要なサイコロのうち好きな1つを使わずに設置できる。',props:{installDiceDiscount:1}},
+ 'オーバークロック':{copyable:false,stackable:true,text:'ターン開始時、好きな資源を合計で10個獲得する。この効果は1回しか発動しない。',props:{overclockResources:10}},
+ '神の見えざる手':{text:'ターン開始時、山札から通常カードを1枚手札に加える。通常手札を1枚捨てることで、好きな資源を1つ獲得する。',props:{invisibleHand:1}},
+ 'リクリエイション':{copyable:true,stackable:false,text:'自分の設置済み通常カード1枚を、VP差が±1以内（同値含む）の通常手札1枚と入れ替えて仮設置する。設置時効果は発動する。レジェンドカードは対象にできない。',props:{recreationRange:1}},
+ '無限の黄金':{copyable:false,stackable:false,text:'領主マイン：10VPを持つ。自分が雇用しているキャラの固有能力はすべて無効（レアリティ共通のサイコロ獲得は有効）。雇用ゴルド：5VPを持つ。《パーフェクト・イミテーション》ではコピーできない。',props:{copyable:false,uncopyable:true}},
+ '神の恩恵':{text:'ターン開始時、サイコロを1つ追加で獲得する。サイコロを好きな種類の資源に交換できる。サイコロから資源を獲得するとき、その獲得量を＋1する（命令書による交換は対象外）。',props:{extraDice:1,dieResourceBonus:1,anyResourceDieConversionAmount:2}},
+ '神託':{text:'ターン1回、通常の雇用の代わりに、未使用のサイコロ1個と資金5を支払い、自分の雇用キャラクター1人を決められた1段階上のキャラクターへレベルアップする。この能力は所持している個体ごとに1回使用できる。',props:{oracleUpgrade:true}},
+ '貢ぎ物':{text:'ターン1回、通常手札のカード1枚を設置コストを支払わずに設置できる。この効果を使用したとき、命令書を1枚獲得する。この能力は所持している個体ごとに1回使用できる。',props:{tributeInstall:true}},
+ 'デッドマンズトリガー':{text:'ターン開始時、カードを1枚引く。通常手札を1枚捨てることで、命令書を1枚獲得する。回数制限なし。同じ能力が重複している場合、ターン開始時のドロー数と、通常手札1枚を捨てたときに獲得する命令書の枚数が重複数ぶん増える。',props:{deadMansTrigger:true}},
+ 'クレシェンティア・ギフテッド':{copyable:false,stackable:false,text:'ターン開始時、好きな出目のサイコロ2個を獲得する。さらに、このCLRに設定された2つの固有能力を、それぞれ能力全体として得る。',props:{extraChosenDice:2}}
+});
+const ABILITY_ADD_KEYS=new Set(['extraDice','extraLordResource','dieResourceBonus','turnBread','firstBreadBonus','installDiceDiscount','invisibleHand','vp','extraChosenDice']);
+function applyUniqueAbilityDef(entity){
+ if(!entity)return entity;
+ let out={...entity},names=[];
+ if(out.uniqueAbility)names.push(out.uniqueAbility);
+ if(Array.isArray(out.grantedAbilities))names.push(...out.grantedAbilities);
+ let applied=new Set(Array.isArray(out._appliedUniqueAbilities)?out._appliedUniqueAbilities:[]);
+ for(const name of names){
+  if(applied.has(name))continue;
+  let def=UNIQUE_ABILITY_DEFS[name];if(!def)continue;
+  for(const [k,v] of Object.entries(def.props||{})){
+   if(ABILITY_ADD_KEYS.has(k)&&typeof v==='number')out[k]=(+out[k]||0)+v;
+   else if(k==='recreationRange'||k==='overclockResources')out[k]=Math.max(+out[k]||0,+v||0);
+   else if(k==='exchangeRate')out[k]=out[k]==null?v:Math.min(+out[k]||99,+v||99);
+   else if(k==='copyable'&&v===false)out[k]=false;
+   else if(k==='uncopyable'&&v===true)out[k]=true;
+   else if(typeof v==='boolean')out[k]=!!out[k]||v;
+   else if(out[k]==null)out[k]=v;
+  }
+  applied.add(name);
+ }
+ out._appliedUniqueAbilities=[...applied];
+ return out
+}
+// 《無限の黄金》は領主マインと雇用ゴルドで別の効果を持つ。
+function isMineGoldLord(p){let lord=CHARACTER_DATA[charOf(p)];return !!lord&&lord.uniqueAbility==='無限の黄金'&&lord.name==='マイン'}
+function employeeUniqueAbilitiesEnabled(p){return !isMineGoldLord(p)}
+function effectiveEmployeeAbility(e,p){if(employeeUniqueAbilitiesEnabled(p))return e;return {rarity:e.rarity,name:e.name,id:e.id,noCommonDie:e.noCommonDie};}
+function abilityStackLabel(name){if(!name||!UNIQUE_ABILITY_DEFS[name])return '';return UNIQUE_ABILITY_DEFS[name].stackable===false?'重複不可':'重複可'}
+function abilityStackTag(name){let label=abilityStackLabel(name);return label?' <span class="ability-stack-tag">'+label+'</span>':''}
+function abilityStackText(name){let label=abilityStackLabel(name);return label?' 【'+label+'】':''}
+function uniqueAbilityText(name){return UNIQUE_ABILITY_DEFS[name]?.text||''}
+function abilityTextForEntity(entity){if(!entity)return '';let own=entity.uniqueAbility==='無限の黄金'?(entity.id==='CUR8'?'常時：このキャラクターは5VPを持つ。《パーフェクト・イミテーション》ではコピーできない。':entity.name==='マイン'?'常時：10VPを持つ。自分が雇用した全キャラの固有能力を無効化する。レアリティ共通のサイコロ獲得は無効化しない。':''):uniqueAbilityText(entity.uniqueAbility);if(Array.isArray(entity.grantedAbilities)&&entity.grantedAbilities.length){let got=entity.grantedAbilities.map(x=>'《'+x+'》').join('＋');return own+(own?'\n':'')+'取得能力：'+got}return own}
+const KOKORYO_PACKS=window.KOKORYO_PACKS||{};
+Object.values(KOKORYO_PACKS).forEach(pack=>{
+ Object.assign(CHARACTER_DATA,pack.characters||{});
+ (pack.characterFamilies||[]).forEach(f=>{
+  let existing=CHARACTER_FAMILIES.find(x=>x.id===f.id);
+  if(existing){
+   let known=new Set((existing.versions||[]).map(v=>v.id));
+   (f.versions||[]).forEach(v=>{if(!known.has(v.id)){existing.versions.push({...v,packId:v.packId||f.packId||pack.id});known.add(v.id)}});
+  }else{
+   CHARACTER_FAMILIES.push({...f,packId:f.packId||pack.id,versions:(f.versions||[]).map(v=>({...v,packId:v.packId||f.packId||pack.id}))});
+  }
+ });
+});
+Object.keys(CHARACTER_DATA).forEach(id=>CHARACTER_DATA[id]=applyUniqueAbilityDef(CHARACTER_DATA[id]));
+function isPackEnabled(id){return !id||!!gameSettings?.enabledPacks?.includes(id)}
+function availableCharacterFamilies(){return CHARACTER_FAMILIES.filter(f=>isPackEnabled(f.packId)).map(f=>({...f,versions:(f.versions||[]).filter(v=>isPackEnabled(v.packId))})).filter(f=>(f.versions||[]).length)}
+window.KOKORYO_CHARACTER_DATA=CHARACTER_DATA;
+window.KOKORYO_CHARACTER_FAMILIES=CHARACTER_FAMILIES;
+// 追加パックは CHARACTER_FAMILIES の対象キャラの versions に別バージョンを追加できる。
+// 各バージョンごとに male / female のP-IDを指定し、最後に性別を選択する。
+// キャスト予約ID：CN1-30 / CR1-30 / CSR1-30 / CSSR1-30 / CUR1-30。
+// 領主予約ID：P1-100。
+// スタンダードは8種類を複数枚採用し、合計30枚（N12 / R9 / SR6 / SSR3）。
+const CLR_FUSION_RULES=[];
+function registerCLRFusionRule(materials,result){CLR_FUSION_RULES.push({materials:[...materials],result})}
+function clrFusionOptions(p=turn){let st=employees[p]||[];return CLR_FUSION_RULES.filter(r=>r.materials.every(id=>st.some(e=>e.id===id))).map(r=>({rule:r}))}
+const CLR_TYPES={
+ CLR1:{id:'CLR1',name:'柊 歌音',title:'かけがえのない仲間',rarity:'CLR',uniqueAbility:'クレシェンティア・ギフテッド',abilityChoices:['神の贈り物','神の恩恵']},
+ CLR2:{id:'CLR2',name:'榎 奏音',title:'かけがえのない仲間',rarity:'CLR',uniqueAbility:'クレシェンティア・ギフテッド',abilityChoices:['神の贈り物','神の恩恵']}
+};
+registerCLRFusionRule(['CUR1','CUR13'],'CLR1');
+registerCLRFusionRule(['CUR9','CUR13'],'CLR2');
+const CAST_TYPES={
+ CN1:{id:'CN1',name:'一般会計',rarity:'N',resource:'y',amount:1},
+ CN2:{id:'CN2',name:'一般料理人',rarity:'N',resource:'p',amount:1},
+ CN3:{id:'CN3',name:'一般兵卒',rarity:'N',resource:'r',amount:1},
+ CR1:{id:'CR1',name:'会計長',rarity:'R',resource:'y',amount:2},
+ CR2:{id:'CR2',name:'料理長',rarity:'R',resource:'p',amount:2},
+ CR3:{id:'CR3',name:'隊長',rarity:'R',resource:'r',amount:2},
+ CSR2:{id:'CSR2',name:'財務官',rarity:'SR',resource:'y',amount:3,synthesisOnly:true},
+ CSR3:{id:'CSR3',name:'宮廷料理人',rarity:'SR',resource:'p',amount:3,synthesisOnly:true},
+ CSR4:{id:'CSR4',name:'将軍',rarity:'SR',resource:'r',amount:3,synthesisOnly:true},
+ CSSR2:{id:'CSSR2',name:'財務総監',rarity:'SSR',resource:'y',amount:3,chooseDie:true,synthesisOnly:true},
+ CSSR3:{id:'CSSR3',name:'総料理長',rarity:'SSR',resource:'p',amount:3,chooseDie:true,synthesisOnly:true},
+ CSSR4:{id:'CSSR4',name:'大将軍',rarity:'SSR',resource:'r',amount:3,chooseDie:true,synthesisOnly:true},
+ CSR1:{id:'CSR1',name:'執事',rarity:'SR',chooseResource:true,amount:2},
+ CSSR1:{id:'CSSR1',name:'執事長',rarity:'SSR',chooseResource:true,amount:2,chooseDie:true},
+ CUR1:{id:'CUR1',name:'柊 歌音',title:'もう1人の転移者',rarity:'UR',uniqueAbility:'神の贈り物',chooseDie:true,uniquePersonGroup:'kanon-kanato'},
+ CUR2:{id:'CUR2',name:'パラケルスス',title:'錬金術師',rarity:'UR',uniqueAbility:'等価交換',chooseDie:true},
+ CUR3:{id:'CUR3',name:'シアン',title:'かわいいスパイラル',rarity:'UR',uniqueAbility:'おねだり',chooseDie:true},
+ CUR4:{id:'CUR4',name:'ビスマルク',title:'天才軍師',rarity:'UR',uniqueAbility:'神算鬼謀',chooseDie:true},
+ CUR5:{id:'CUR5',name:'アローン',title:'孤独な機械',rarity:'UR',uniqueAbility:'オーバークロック',chooseDie:true},
+ CUR6:{id:'CUR6',name:'ジル',title:'天才商人',rarity:'UR',uniqueAbility:'神の見えざる手',chooseDie:true}
+};
+Object.assign(CAST_TYPES,CLR_TYPES);
+Object.values(KOKORYO_PACKS).forEach(pack=>Object.entries(pack.casts||{}).forEach(([id,e])=>CAST_TYPES[id]={...e,packId:pack.id}));
+Object.keys(CAST_TYPES).forEach(id=>CAST_TYPES[id]=applyUniqueAbilityDef(CAST_TYPES[id]));
+function castCopies(id,n){return Array.from({length:n},(_,i)=>({...CAST_TYPES[id],copy:i+1,instanceId:id+'-'+(i+1)}))}
+function castDisplayName(e){if(!e)return '';if(e.rarity==='CLR')return e.name;return e.rarity==='UR'?(e.title?'《'+e.title+'》'+e.name:e.name):e.name}
+// Ver.2.77: イラストは表示名ではなく内部IDで紐付ける。画像未配置時は既存UIへ自動フォールバック。
+const CONTENT_IMAGE_DIRS=Object.freeze({P:'images/characters/',CN:'images/cast/',CR:'images/cast/',CSR:'images/cast/',CSSR:'images/cast/',CUR:'images/cast/',CLR:'images/cast/',S:'images/cards/',N:'images/cards/',LL:'images/legends/',LU:'images/legends/'});
+function contentBaseId(x){if(!x)return '';let raw=typeof x==='string'?x:(x.key||x.id||'');return String(raw).replace(/-\d+$/,'')}
+function contentImagePath(x){let id=contentBaseId(x),m=id.match(/^(CSSR|CSR|CUR|CLR|CN|CR|LL|LU|S|N|P)\d+$/);return m?(CONTENT_IMAGE_DIRS[m[1]]||'')+id+'.png':''}
+function resolvedContentImage(x){return (x&&x.image)||contentImagePath(x)}
+const CAST_GACHA_RATES=[['N',70],['R',16],['SR',10],['SSR',3],['UR',1]];
+// UR＝Unique Rare（ユニークレア）。正式実装済みだが、スタンダードの通常ガチャ排出対象は8種のみ。追加パック側から排出IDを追加できる。
+// URは固有キャスト。同じURキャストはゲーム中に1人しか雇用できず、獲得済みURは以後の抽選候補から除外する。
+const STANDARD_CAST_IDS=['CN1','CN2','CN3','CR1','CR2','CR3','CSR1','CSSR1','CUR1','CUR2','CUR3','CUR4','CUR5','CUR6'];
+const SYNTHESIS_CAST_IDS=['CSR2','CSR3','CSR4','CSSR2','CSSR3','CSSR4'];
+const IMPLEMENTED_CAST_IDS=[...new Set([...STANDARD_CAST_IDS,...SYNTHESIS_CAST_IDS])];
+let ACTIVE_CAST_IDS=[...STANDARD_CAST_IDS];
+function isUniqueRareAlreadyHired(id){let target=CAST_TYPES[id];if(target?.doppelUniqueException)return false;let group=target&&target.uniquePersonGroup;return employees.some(list=>(list||[]).some(e=>e&&e.rarity==='UR'&&(e.id===id||(group&&e.uniquePersonGroup===group)||(target&&e.name===target.name))))}
+function availableCastPool(ids,rarity){return ids.map(id=>CAST_TYPES[id]).filter(x=>x&&x.rarity===rarity&&(rarity!=='UR'||!isUniqueRareAlreadyHired(x.id)))}
+function implementedCastPool(rarity){let ids=[...ACTIVE_CAST_IDS];Object.values(KOKORYO_PACKS).forEach(pack=>{if(isPackEnabled(pack.id))ids.push(...(pack.castIds||Object.keys(pack.casts||{})))});return availableCastPool([...new Set(ids)].filter(id=>!CAST_TYPES[id]?.synthesisOnly),rarity)}
+function allImplementedCastPool(rarity){return availableCastPool(IMPLEMENTED_CAST_IDS,rarity)}
+function addCastPack(ids=[]){ids.forEach(id=>{if(CAST_TYPES[id]&&!ACTIVE_CAST_IDS.includes(id))ACTIVE_CAST_IDS.push(id)})}
+function rollCastRarity(){
+ // 未実装レアリティ（現在はUR）を引いた場合は、実装済みレアリティが出るまで再抽選する。
+ while(true){let r=Math.random()*100,acc=0;for(let [rarity,rate] of CAST_GACHA_RATES){acc+=rate;if(r<acc){if(implementedCastPool(rarity).length)return rarity;break}}}
+}
+function randomCastOfRarity(rarity){let pool=implementedCastPool(rarity);return pool.length?{...pool[Math.floor(Math.random()*pool.length)]}:null}
+function gachaCast(){return randomCastOfRarity(rollCastRarity())}
+
+function charOf(p){return characters[p]||'P1'}
+function lordPortraitPath(charId){return /^P(?:[1-9]|[1-9]\d|100)$/.test(String(charId||''))?'images/characters/'+charId+'.png':''}
+function renderLordPortrait(el,charId,label='キャラクターイラスト'){if(!el)return;let src=lordPortraitPath(charId);el.innerHTML='';if(!src){el.textContent='NO IMAGE';return}let img=document.createElement('img');img.src=src;img.alt=(CHARACTER_DATA[charId]?.name||label);img.onerror=()=>{el.textContent='NO IMAGE'};el.appendChild(img)}
+function characterFamily(id){let a=availableCharacterFamilies();return a.find(x=>x.id===id)||a[0]||CHARACTER_FAMILIES[0]}
+function characterVersion(family,id){return family.versions.find(x=>x.id===id)||family.versions[0]}
+function makeSetupChoiceButton(label,selected,disabled,onpick){
+ let b=document.createElement('button');b.type='button';b.className='setup-choice-btn'+(selected?' selected':'');b.textContent=label;b.disabled=!!disabled;b.onclick=onpick;return b
+}
+function renderPlayerCountChoices(){
+ let box=q('#playerCountChoices');if(!box)return;let cur=+q('#playerCount').value;box.innerHTML='';
+ for(let n=2;n<=6;n++)box.appendChild(makeSetupChoiceButton(n+'人',n===cur,false,()=>{q('#playerCount').value=n;renderPlayerCountChoices();renderCharacterSelects()}))
+}
+function renderCharacterSelects(){
+ let n=+q('#playerCount').value,box=q('#characterSelects'),prev=[...box.querySelectorAll('.char-row')].map(r=>({family:r.dataset.family,version:r.dataset.version,gender:r.dataset.gender}));box.innerHTML='';
+ for(let p=0;p<n;p++){
+  let state=prev[p]||{},fallback=CHARACTER_FAMILIES[p%CHARACTER_FAMILIES.length]||CHARACTER_FAMILIES[0];
+  let fam=CHARACTER_FAMILIES.find(x=>x.id===state.family)||fallback,ver=characterVersion(fam,state.version),gender=state.gender||'male';
+  let row=document.createElement('div');row.className='char-row';row.dataset.player=p;row.dataset.family=fam.id;row.dataset.version=ver.id;row.dataset.gender=gender;
+  let head=document.createElement('strong');head.textContent='P'+(p+1);row.appendChild(head);box.appendChild(row);renderCharacterRow(row)
+ }
+ updateCharacterSelectAvailability()
+}
+function renderCharacterRow(row){
+ let fam=characterFamily(row.dataset.family),ver=characterVersion(fam,row.dataset.version);if(!fam.versions.some(v=>v.id===row.dataset.version))row.dataset.version=fam.versions[0].id;
+ ver=characterVersion(fam,row.dataset.version);let sex=row.dataset.gender||'male';if(!ver[sex])sex=ver.male?'male':'female';row.dataset.gender=sex;
+ [...row.querySelectorAll('.char-step')].forEach(x=>x.remove());
+ let chosen=[...document.querySelectorAll('#characterSelects .char-row')].filter(r=>r!==row).map(r=>r.dataset.family);
+ let nameStep=document.createElement('div');nameStep.className='char-step';nameStep.innerHTML='<div class="char-step-label">キャラ名</div>';let names=document.createElement('div');names.className='setup-choice-row';
+ availableCharacterFamilies().forEach(g=>names.appendChild(makeSetupChoiceButton(g.label,g.id===fam.id,chosen.includes(g.id),()=>{row.dataset.family=g.id;row.dataset.version=g.versions[0].id;renderCharacterRow(row);updateCharacterSelectAvailability()})));nameStep.appendChild(names);row.appendChild(nameStep);
+ let versionStep=document.createElement('div');versionStep.className='char-step';versionStep.innerHTML='<div class="char-step-label">バージョン</div>';let versions=document.createElement('div');versions.className='setup-choice-row';
+ fam.versions.forEach(v=>versions.appendChild(makeSetupChoiceButton(v.label,v.id===row.dataset.version,false,()=>{row.dataset.version=v.id;let nv=characterVersion(fam,v.id);if(!nv[row.dataset.gender])row.dataset.gender=nv.male?'male':'female';renderCharacterRow(row)})));versionStep.appendChild(versions);row.appendChild(versionStep);
+ ver=characterVersion(fam,row.dataset.version);let genderStep=document.createElement('div');genderStep.className='char-step';genderStep.innerHTML='<div class="char-step-label">性別</div>';let genders=document.createElement('div');genders.className='setup-choice-row';
+ [['male','男性'],['female','女性']].forEach(([key,label])=>{if(ver[key])genders.appendChild(makeSetupChoiceButton(label,key===row.dataset.gender,false,()=>{row.dataset.gender=key;renderCharacterRow(row)}))});genderStep.appendChild(genders);row.appendChild(genderStep)
+}
+function selectedCharacterIds(){
+ return [...document.querySelectorAll('#characterSelects .char-row')].map(row=>{let fam=characterFamily(row.dataset.family),ver=characterVersion(fam,row.dataset.version),sex=row.dataset.gender||'male';return ver[sex]||ver.male||ver.female})
+}
+function updateCharacterSelectAvailability(){
+ [...document.querySelectorAll('#characterSelects .char-row')].forEach(renderCharacterRow)
+}
+const STD_BASE=[
+{key:'S1',name:'作戦計画書',type:'S',special:'plan',vp:0,costText:'兵力2'},
+{key:'S2',name:'人員調整書',type:'S',special:'adjust',vp:0,costText:'兵力4'},
+{key:'S3',name:'制限令',type:'S',special:'restrict',vp:0,costText:'兵力3'},
+{key:'S4',name:'特別許可書',type:'S',special:'permit',vp:0,costText:'兵力3'},
+{key:'S5',name:'鉱山',type:'S',special:'mine',vp:1,costText:'🎲1/2＋資金2'},
+{key:'S6',name:'農場',type:'S',special:'farm',vp:1,costText:'🎲3/4＋食料2'},
+{key:'S7',name:'兵舎',type:'S',special:'barracks',vp:1,costText:'🎲5/6＋兵力2'},
+{key:'S8',name:'司令室',type:'S',special:'commandroom',vp:1,costText:'🎲3/4＋資金3＋兵力1'},
+{key:'S9',name:'倉庫',type:'S',special:'warehouse',vp:1,costText:'🎲1/3/5'},
+{key:'S10',name:'教会',type:'S',special:'church',vp:1,costText:'🎲1/4＋資金3＋食料1'}
+];
+const NORMAL_BASE=mk('N','通常 ',15).map(c=>({...c,implemented:false})); NORMAL_BASE[0]={key:'N1',name:'ナーロッパランド',type:'N',special:'paneteria',vp:1}; NORMAL_BASE[1]={key:'N2',name:'領主会議',type:'N',special:'lordmeeting',vp:1,costText:'🎲1/6＋資金4'}; NORMAL_BASE[2]={key:'N3',name:'開拓ラッシュ',type:'N',special:'blackcasino',vp:1,costText:'🎲2＋🎲5＋食料5'};
+NORMAL_BASE[3]={key:'N4',name:'大鉱山',type:'N',special:'greatermine',vp:2,costText:'🎲1＋🎲2＋資金5'};
+NORMAL_BASE[4]={key:'N5',name:'大農園',type:'N',special:'greaterfarm',vp:2,costText:'🎲3＋🎲4＋食料5'};
+NORMAL_BASE[5]={key:'N6',name:'要塞',type:'N',special:'greaterbarracks',vp:2,costText:'🎲5＋🎲6＋兵力5'};
+NORMAL_BASE[6]={key:'N7',name:'大司令部',type:'N',special:'greatercommand',vp:2,costText:'🎲3＋🎲4＋資金4＋兵力2'};
+NORMAL_BASE[7]={key:'N8',name:'飢饉',type:'N',special:'famine',vp:3,costText:'🎲3＋🎲3＋🎲3＋食料3'};
+NORMAL_BASE[8]={key:'N9',name:'徴兵令',type:'N',special:'swordhunt',vp:2,costText:'🎲6＋兵力4'};
+NORMAL_BASE[9]={key:'N10',name:'ナロパカルタ',type:'N',special:'laws',vp:1,costText:'資金5'};
+NORMAL_BASE[10]={key:'N11',name:'オルフェンズ',type:'N',special:'graveyard',vp:0,costText:'🎲4/5＋食料1＋兵力2'};
+NORMAL_BASE[11]={key:'N12',name:'納税',type:'N',special:'landgrab',vp:2,costText:'🎲2＋🎲5＋資金2＋食料2＋兵力2'};
+NORMAL_BASE[12]={key:'N13',name:'義賊',type:'N',special:'bandit',vp:3,costText:'🎲ANY＋🎲ANY＋🎲ANY＋資金4＋食料3'};
+NORMAL_BASE[13]={key:'N14',name:'交易場',type:'N',special:'publicmarket',vp:0,costText:'🎲ANY＋資金1＋食料1＋兵力1'};
+NORMAL_BASE[14]={key:'N15',name:'スカウト',type:'N',special:'scout',vp:2,costText:'資金2＋食料2＋兵力2'};
+NORMAL_BASE.slice(0,15).forEach(c=>c.implemented=true);
+// Nカードのターン開始時フェイズ。効果のないカードには開始時フラグを付けない。
+const N_NORMAL_START_SPECIALS=new Set(['mine','farm','barracks','commandroom','church','greatermine','greaterfarm','greaterbarracks','greatercommand','bandit','nanban','tenkucat']);
+NORMAL_BASE.forEach(c=>{if(N_NORMAL_START_SPECIALS.has(c.special))c.turnStartTiming='normal'});
+Object.values(KOKORYO_PACKS).forEach(pack=>(pack.normalCards||[]).forEach(c=>{let n=Number(String(c.key||'').replace(/^N/,''));if(n>=1){NORMAL_BASE[n-1]={...c,implemented:true,packId:pack.id,turnStartTiming:c.turnStartTiming||((typeof c.hooks?.turnStart==='function')?'normal':undefined)}}}));
+const STD=copies(STD_BASE), NORMAL=copies(NORMAL_BASE.filter(c=>c.implemented));
+// 固定デッキ定義。表示名とは別に内部IDで管理し、今後のデッキ追加・編集機能の土台にする。
+const DECK_PRESETS={
+ standard1:{id:'standard1',name:'スタンダード1',fixed:true,normalKeys:Array.from({length:15},(_,i)=>'N'+(i+1)),lowerLegendKeys:['LL1','LL2','LL3','LL4','LL5','LL6'],upperLegendKeys:['LU1','LU2','LU3','LU4','LU5','LU6']},
+ standard2:{id:'standard2',name:'スタンダード2',fixed:true,normalKeys:['N2','N8','N9','N10','N15','N16','N17','N18','N19','N20','N21','N22','N23','N24','N25'],lowerLegendKeys:['LL4','LL5','LL6','LL7','LL8','LL9'],upperLegendKeys:['LU2','LU3','LU6','LU7','LU8','LU9']},
+ standard3:{id:'standard3',name:'スタンダード3',fixed:true,normalKeys:['N4','N5','N6','N7','N15','N26','N27','N28','N29','N30','N31','N32','N33','N34','N35'],lowerLegendKeys:['LL4','LL5','LL6','LL10','LL11','LL12'],upperLegendKeys:['LU4','LU5','LU6','LU10','LU11','LU12']}
+};
+let customDeck={normalKeys:Array.from({length:15},(_,i)=>'N'+(i+1)),lowerLegendKeys:['LL1','LL2','LL3','LL4','LL5','LL6'],upperLegendKeys:['LU1','LU2','LU3','LU4','LU5','LU6']};
+const CUSTOM_DECK_SAVE_KEY='kokoryo_custom_decks_v1';
+function getSavedDecks(){try{let x=JSON.parse(localStorage.getItem(CUSTOM_DECK_SAVE_KEY)||'{}');return x&&typeof x==='object'&&!Array.isArray(x)?x:{}}catch(e){return {}}}
+function putSavedDecks(x){try{localStorage.setItem(CUSTOM_DECK_SAVE_KEY,JSON.stringify(x));return true}catch(e){alert('デッキを保存できませんでした。ブラウザの保存領域を確認してください。');return false}}
+function cloneCustomDeck(d=customDeck){return {normalKeys:[...(d.normalKeys||[])],lowerLegendKeys:[...(d.lowerLegendKeys||[])],upperLegendKeys:[...(d.upperLegendKeys||[])]}}
+function refreshDeckSaveUI(selectName){let sel=q('#deckSaveSelect');if(!sel)return;let saves=getSavedDecks(),names=Object.keys(saves);sel.innerHTML='';if(!names.length){let o=document.createElement('option');o.value='';o.textContent='保存デッキなし';sel.appendChild(o);sel.disabled=true}else{sel.disabled=false;names.forEach(name=>{let o=document.createElement('option');o.value=name;o.textContent=name;sel.appendChild(o)});if(selectName&&saves[selectName])sel.value=selectName}q('#deckLoadBtn').disabled=!names.length;q('#deckDeleteBtn').disabled=!names.length}
+function saveCustomDeck(){let input=q('#deckSaveName'),name=(input.value||'').trim();if(!name)return alert('デッキ名を入力してください。');if((customDeck.lowerLegendKeys||[]).length<6)return alert('Lower Legendは最低6種類採用してください。');let saves=getSavedDecks();if(saves[name]&&!turnClockConfirm('「'+name+'」を上書き保存しますか？'))return;saves[name]=cloneCustomDeck();if(putSavedDecks(saves)){input.value=name;refreshDeckSaveUI(name);alert('「'+name+'」を保存しました。')}}
+function loadCustomDeck(){let name=q('#deckSaveSelect')?.value,saves=getSavedDecks(),d=saves[name];if(!d)return;customDeck=cloneCustomDeck(d);q('#deckSaveName').value=name;renderDeckEditor();alert('「'+name+'」を読み込みました。')}
+function deleteCustomDeck(){let name=q('#deckSaveSelect')?.value,saves=getSavedDecks();if(!name||!saves[name])return;if(!turnClockConfirm('「'+name+'」を削除しますか？'))return;delete saves[name];if(putSavedDecks(saves)){refreshDeckSaveUI();alert('「'+name+'」を削除しました。')}}
+function allCardsDeckConfig(){return {normalKeys:implementedNormalCards().map(c=>c.key),lowerLegendKeys:LEGEND_CATALOG.filter(c=>c.tier==='lower'&&isPackEnabled(c.packId)).map(c=>c.id),upperLegendKeys:LEGEND_CATALOG.filter(c=>c.tier==='upper'&&isPackEnabled(c.packId)).map(c=>c.id)}}
+function activeDeckConfig(deckId){return deckId==='custom'?customDeck:deckId==='allcards'?allCardsDeckConfig():(DECK_PRESETS[deckId]||DECK_PRESETS.standard1)}
+function standardDeckPresets(){return Object.values(DECK_PRESETS).filter(d=>d&&d.fixed)}
+function standardDeckName(id){return DECK_PRESETS[id]?.name||'スタンダード1'}
+function deckMissingCards(deckId){
+ const cfg=DECK_PRESETS[deckId];if(!cfg)return [];
+ const missing=[];
+ (cfg.normalKeys||[]).forEach(key=>{let c=NORMAL_BASE.find(x=>x&&x.key===key);if(!c||!c.implemented||!isPackEnabled(c.packId))missing.push(key)});
+ (cfg.lowerLegendKeys||[]).forEach(key=>{let c=LEGEND_CATALOG.find(x=>x.id===key);if(!c||!isPackEnabled(c.packId))missing.push(key)});
+ (cfg.upperLegendKeys||[]).forEach(key=>{let c=LEGEND_CATALOG.find(x=>x.id===key);if(!c||!isPackEnabled(c.packId))missing.push(key)});
+ return missing;
+}
+function deckPresetAvailable(deckId){return !deckMissingCards(deckId).length}
+function refreshSetupDeckPreset(){let sel=q('#deckPreset');if(!sel)return;let cur=sel.value||'standard1';sel.innerHTML='';standardDeckPresets().forEach(d=>{let o=document.createElement('option');o.value=d.id;let missing=deckMissingCards(d.id);o.disabled=!!missing.length;o.textContent=d.name+'（固定）'+(missing.length?'［必要カード不足］':'');sel.appendChild(o)});let a=document.createElement('option');a.value='allcards';a.textContent='全カードデッキ';sel.appendChild(a);let c=document.createElement('option');c.value='custom';c.textContent='カスタムデッキ';sel.appendChild(c);if([...sel.options].some(o=>o.value===cur&&!o.disabled))sel.value=cur;else sel.value='standard1';q('#editDeck').disabled=sel.value!=='custom'}
+function populateOnlineDebugDeckPreset(){let sel=q('#onlineDebugDeckPreset');if(!sel)return;let current=sel.dataset.selectedValue||gameSettings.deckId;sel.innerHTML='';standardDeckPresets().forEach(d=>{let o=document.createElement('option');o.value=d.id;let missing=deckMissingCards(d.id);o.disabled=!!missing.length;o.textContent=d.name+'（固定）'+(missing.length?'［必要カード不足］':'');sel.appendChild(o)});let a=document.createElement('option');a.value='allcards';a.textContent='全カードデッキ';sel.appendChild(a);let saves=getSavedDecks();Object.keys(saves).forEach(name=>{let o=document.createElement('option');o.value='saved:'+name;o.textContent=name;sel.appendChild(o)});if(current==='custom'){let name=(q('#deckSaveName')?.value||'').trim();current=name&&saves[name]?'saved:'+name:'standard1'}if(![...sel.options].some(o=>o.value===current))current='standard1';sel.value=current;sel.dataset.selectedValue=current;q('#onlineDebugEditDeck').disabled=false}
+function normalCardsForDeck(deckId){
+ const keys=new Set(activeDeckConfig(deckId).normalKeys);
+ return copies(NORMAL_BASE.filter(c=>c.implemented&&keys.has(c.key)&&isPackEnabled(c.packId)));
+}
+function implementedNormalCards(){return NORMAL_BASE.filter(c=>c.implemented&&isPackEnabled(c.packId))}
+function clampedRandomizerCount(v){return Math.min(implementedNormalCards().length,Math.max(0,Math.floor(Number(v)||0)))}
+function makeRandomizerCards(){if(!gameSettings.randomizerEnabled)return [];let count=clampedRandomizerCount(gameSettings.randomizerCount);return sh(implementedNormalCards()).slice(0,count).map((c,i)=>({...c,id:c.key+'-RND-'+(i+1)}))}
+let nextHireMinRarity=null,nextHireExtra=0,fusionUsedThisTurn=false;
+let gameSettings={winVP:20,marketTypes:8,initialResources:4,handLimit:6,hireLimit:3,legendSlots:3,deckId:'standard1',randomizerEnabled:false,randomizerCount:15,enabledPacks:[],enabledRulePacks:[],ruleCardMode:'select',ruleCardChoice:'RC1',activeRuleCards:[]};
+function legendSlotMax(deckId=gameSettings.deckId){let cfg=activeDeckConfig(deckId),lower=(cfg.lowerLegendKeys||[]).length,upper=(cfg.upperLegendKeys||[]).length;return Math.max(1,Math.min(6,lower,upper))}
+function fillLegendSlotSelect(sel,deckId,value){let el=typeof sel==='string'?q(sel):sel;if(!el)return;let max=legendSlotMax(deckId);el.innerHTML='';let cur=Math.max(1,Math.min(max,+value||Math.min(3,max)));for(let i=1;i<=max;i++){let o=document.createElement('option');o.value=i;o.textContent=i+'枚';el.appendChild(o)}el.value=cur}
+function refreshLegendSlotSelectors(){fillLegendSlotSelect('#settingLegendSlots',q('#deckPreset')?.value||'standard1',gameSettings.legendSlots);fillLegendSlotSelect('#onlineDebugRuleLegendSlots',gameSettings.deckId,gameSettings.legendSlots);fillLegendSlotSelect('#realRuleLegendSlots',realOnlineDeckId||'standard1',realOnlineRules?.legendSlots||gameSettings.legendSlots)}
+let selectedMarketKey=null;
+// Ver.2.16: current-turn normal market acquisition undo history. Each acquired pile is tracked independently.
+let marketUndoHistory=[];
+let commandUndoHistory=[];
+function clearMarketUndo(){marketUndoHistory=[];commandUndoHistory=[]}
+function marketUndoEntryAvailable(e){return !botMatchMode&&(!(onlineDebugMode||realOnlineMainMode)||viewer===turn)&&!!e&&!e.blocked&&e.owner===turn&&e.cards.length>0&&e.cards.every(c=>hands[turn].includes(c))}
+function blockAllMarketUndo(reason=''){
+ marketUndoHistory.forEach(e=>e.blocked=true);
+ commandUndoHistory.forEach(e=>e.blocked=true);
+}
+function addCommandUndo(entry){commandUndoHistory.push({id:Date.now()+Math.random(),owner:turn,blocked:false,...entry})}
+function commandUndoAvailable(e){return !!e&&!e.blocked&&e.owner===turn}
+function undoCommandAction(id){
+ let e=commandUndoHistory.find(x=>x.id===id);if(!commandUndoAvailable(e))return alert('この操作は戻せません。市場が変更されたか、すでに戻しています。');
+ if(e.kind==='dieConvert'){let d=dice.find(x=>x.id===e.dieId);if(!d||!d.used||powers[turn][e.color]<(e.amount||1))return alert('現在の状態ではこの変換を戻せません。');powers[turn][e.color]-=(e.amount||1);d.used=false}
+ else if(e.kind==='breadConvert'){if(powers[turn][e.color]<1)return alert('現在の状態ではこの変換を戻せません。');let loc=breadDiscard.findIndex(x=>x.id===e.order.id);if(loc>=0)breadDiscard.splice(loc,1);else{loc=breadDeck.findIndex(x=>x.id===e.order.id);if(loc>=0)breadDeck.splice(loc,1);else return alert('変換した命令書がすでに別の処理で移動しているため戻せません。')}powers[turn][e.color]--;breadHands[turn].push(e.order)}
+ else if(e.kind==='resourceExchange'){if(powers[turn][e.to]<1)return alert('受け取った資源をすでに使っているため、この交換は戻せません。');powers[turn][e.to]--;powers[turn][e.from]+=(e.amount||2)}
+ e.blocked=true;pendingBreadAnyIndex=null;pendingResourceFrom=null;renderGame();
+}
+function renderUndoActions(){let box=q('#undoactions');if(!box)return;box.innerHTML='';if(botMatchMode||((onlineDebugMode||realOnlineMainMode)&&viewer!==turn)){box.classList.add('hidden');return}box.classList.remove('hidden');let any=false;let ch=commandUndoHistory.filter(commandUndoAvailable);ch.forEach(e=>{any=true;let b=document.createElement('button');b.className='secondary';b.style.margin='4px';if(e.kind==='dieConvert')b.textContent='↩ 🎲'+e.dieValue+'→'+cname(e.color);else if(e.kind==='breadConvert')b.textContent='↩ '+breadLabel(e.order)+'→'+cname(e.color);else b.textContent='↩ '+cname(e.from)+'2→'+cname(e.to)+'1';b.onclick=()=>undoCommandAction(e.id);box.appendChild(b)});marketUndoHistory.filter(marketUndoEntryAvailable).forEach(e=>{any=true;let b=document.createElement('button');b.className='secondary';b.style.margin='4px';b.textContent='↩ 市場：'+e.cards[0].name+(e.cards.length>1?' ×'+e.cards.length:'');b.onclick=()=>undoMarketAcquisition(e.id);box.appendChild(b)});if(!any)box.innerHTML='<span class="small">現在戻せる操作はありません。</span>'}
+function undoMarketAcquisition(id){let e=marketUndoHistory.find(x=>x.id===id);if(!marketUndoEntryAvailable(e))return alert('この市場獲得は戻せません。獲得した山のカードを設置・移動したか、市場を変更する効果を使用しています。');for(let c of e.cards){let i=hands[turn].indexOf(c);if(i<0)return alert('獲得したカードが手札に揃っていないため戻せません。');hands[turn].splice(i,1)}market.push(...e.cards);let d=dice.find(x=>x.id===e.dieId);if(d)d.used=false;e.blocked=true;selectedMarketKey=null;renderGame()}
+let nightEscapePostAvailable=false,nightEscapeResetNext=[],stdAbilityUsed={},pendingLordResource=0,playerCount=4,lordOracleUsed=[],lordTributeUsed=[],unusedStd=[],packs=[],hands=[],selected=[],round=0,viewer=0,deck=[],market=[],discard=[],turn=0,dice=[],powers=[],installed=[],temporary=[],elekiterUsed=[],pendingNanban=0,pendingTenkuCat=0,commandCounts=[],komePlace=100,pendingParkPlayers=[],pendingParkTaken=[],characterMode='P1',characters=[],legends=[],legendTakenThisTurn=false,endgameStarter=null,endgameRemaining=0,gameEnded=false,breadDeck=[],breadDiscard=[],breadHands=[],employeeDeck=[],employees=[],hiredThisTurn=false,pendingSSRBonus=0,pendingCastResourceChoices=[],lordFirstBreadUsed=[],lordOverclockUsed=[],pendingOverclockChoices=[],debugVP=[],copiedAbility=null,copiedOracleUsed=false,copiedTributeUsed=false,organizationUsed=[];
+function sh(a){a=[...a];for(let i=a.length-1;i>0;i--){let j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
+function makeBreadDeck(){let a=[];for(let v=1;v<=6;v++)for(let i=0;i<4;i++)a.push({kind:'bread',value:v,name:'命令書 '+v,id:'B'+v+'-'+(i+1)});a.push({kind:'bread',value:'any',name:'命令書 ANY',id:'BANY-1'});return sh(a)}
+function recycleBreadIfEmpty(){if(!breadDeck.length&&breadDiscard.length){breadDeck=sh(breadDiscard);breadDiscard=[]}}
+function drawBread(owner=turn){recycleBreadIfEmpty();let c=breadDeck.shift()||null;if(c){breadHands[owner].push(c);recycleBreadIfEmpty()}return c}
+function breadLabel(b){return b.value==='any'?'ANY':String(b.value)}
+function specialEffectId(c){return c?.specialEffect||c?.special||''}
+const SPECIAL_EFFECT_DEFAULTS={
+ goldenAge:{phase:'post',condition:{moneyPerTotalDebt:10},vpFormula:{resources:['y'],divisor:3,round:'ceil',penalties:[{resource:'r',target:10},{resource:'p',target:10}]},onAcquire:{clearAllDebt:true,convertAll:{from:['p','r'],to:'y',rate:1},gainOwner:{y:20},disableFutureDebt:true},resourceGain:{ownerBlock:['p','r'],acquireTurnAllSources:true,afterAcquireAllowedSources:['exchange','dieConvert']}},
+ greatDepression:{phase:'pre',condition:{foodMilitaryBase:100,debtDiscount:10},vpFormula:{resources:['r','p'],divisor:4,round:'ceil',penalties:[{resource:'y',target:10}]},onAcquire:{clearAll:{resources:['y']},giveDebtAll:10},resourceGain:{ownerBlock:['y'],acquireTurnAllSources:true,afterAcquireAllowedSources:['exchange','dieConvert']},debt:{ignoreForOwnerHandLimit:true,ownerCannotDiscard:true,ownerDebtBonusDivisor:10,ownerDebtBonusRound:"ceil",finalVPPerDebt:-2}}
+};
+function mergeSpecialConfig(base,extra){let out={...(base||{}),...(extra||{})};for(const k of ['condition','vpFormula','onAcquire','resourceGain','debt'])if((base&&base[k])||(extra&&extra[k]))out[k]={...(base?.[k]||{}),...(extra?.[k]||{})};return out}
+function specialConfig(c){return mergeSpecialConfig(SPECIAL_EFFECT_DEFAULTS[specialEffectId(c)]||{},c?.specialConfig||c?.effectConfig||{})}
+function hasSpecialEffect(p,effectId){return allFieldCards(p).some(c=>specialEffectId(c)===effectId)}
+function hasEraSpecial(p,effectId){return hasSpecialEffect(p,effectId)}
+function specialOwners(filter){let out=[];for(let p=0;p<playerCount;p++)for(const c of allFieldCards(p)){let cfg=specialConfig(c);if(filter(cfg,c,p))out.push({p,c,cfg})}return out}
+function goldenAgeOwner(){let x=specialOwners((cfg,c)=>specialEffectId(c)==='goldenAge')[0];return x?x.p:-1}
+function greatDepressionOwner(){let x=specialOwners((cfg,c)=>specialEffectId(c)==='greatDepression')[0];return x?x.p:-1}
+function depressionDebtLocked(p){return hasSpecialEffect(p,'greatDepression')}
+function depressionLegendLocked(p){return depressionDebtLocked(p)}
+function depressionProtectsDebtAtHandLimit(){return greatDepressionOwner()>=0}
+function handLimitNeedsDiscard(p){return totalHandCount(p)>handLimit(p)&&(!depressionProtectsDebtAtHandLimit()||hands[p].length+breadHands[p].length>0)}
+function debtIgnoredForHand(p){return specialOwners((cfg,c,owner)=>owner===p&&cfg.debt?.ignoreForOwnerHandLimit).length>0}
+function totalHandCount(p){return hands[p].length+breadHands[p].length+(debtIgnoredForHand(p)?0:(commandCounts[p]||0))}
+function eraGainAllowed(p,key,source='effect'){for(const {c,cfg} of specialOwners((cfg,c,owner)=>owner===p&&Array.isArray(cfg.resourceGain?.ownerBlock)&&cfg.resourceGain.ownerBlock.includes(key))){if(c._eraAcquiredThisTurn&&cfg.resourceGain.acquireTurnAllSources)return false;let allowed=cfg.resourceGain.afterAcquireAllowedSources;if(Array.isArray(allowed)&&!allowed.includes(source))return false}return true}
+function gainResource(p,key,n=1,source='effect'){
+ n=Math.max(0,Math.floor(+n||0));if(!n||!powers[p]||!['y','p','r'].includes(key))return 0;
+ if((depressionStartSuppressed&&p===turn)||!eraGainAllowed(p,key,source))return 0;powers[p][key]+=n;return n
+}
+let renderingInstallCosts=false;
+function lordInstallDiceDiscount(){let lord=CHARACTER_DATA[charOf(turn)]||{},staff=employeeUniqueAbilitiesEnabled(turn)?(employees[turn]||[]):[];return (lord.installDiceDiscount||0)+staff.reduce((n,e)=>n+(e.installDiceDiscount||0),0)+(copiedAbility==='おねだり'?1:0)}
+function installCostOptions(required=null){let old=renderingInstallCosts;renderingInstallCosts=true;let out=costOptions(required);renderingInstallCosts=old;return out}
+function costOptions(required=null){
+ let a=[];
+ if(renderingInstallCosts){let discount=lordInstallDiceDiscount(),isCiel=(CHARACTER_DATA[charOf(turn)]||{}).group==='ciel';for(let i=0;i<(isCiel?discount:Math.min(discount,1));i++)a.push({id:'free:request:'+i,label:'《おねだり》免除'+(isCiel&&discount>1?' '+(i+1):'')});}
+ a.push(...unusedDice().filter(d=>required===null||d.value===required).map(d=>({id:'d:'+d.id,label:'🎲'+d.value+'（実#'+d.id+'）'})));
+ breadHands[turn].forEach((b,i)=>{if(required===null||b.value==='any'||b.value===required)a.push({id:'b:'+i,label:'📜'+breadLabel(b)})});
+ return a
+}
+function makeChoicePicker(opts){let box=document.createElement('div');box.className='cost-picker';box.options=opts;box.value=opts.length?String(opts[0].id):'';function paint(){[...box.querySelectorAll('.cost-choice')].forEach(b=>b.classList.toggle('selected',String(b.dataset.value)===String(box.value)))}opts.forEach(x=>{let b=document.createElement('button');b.type='button';b.className='cost-choice';b.dataset.value=x.id;b.textContent=x.label;b.onclick=()=>{box.value=String(x.id);paint()};box.appendChild(b)});paint();return box}
+function costSelect(required=null){return makeChoicePicker(renderingInstallCosts?costOptions(required):installCostOptions(required))}
+function consumeCostChoice(choice,required=null){
+ if(String(choice).startsWith('free:request:')&&lordInstallDiceDiscount()>Number(String(choice).split(':')[2]))return true;
+ if(!choice)return false;
+ let [k,n]=String(choice).split(':');
+ if(k==='d'){let d=unusedDice().find(x=>x.id===+n&&(required===null||x.value===required));if(!d)return false;d.used=true;return true}
+ if(k==='b'){let i=+n,b=breadHands[turn][i];if(!b||(required!==null&&b.value!=='any'&&b.value!==required))return false;breadDiscard.push(breadHands[turn].splice(i,1)[0]);recycleBreadIfEmpty();return true}
+ return false
+}
+function distinctCostChoices(a,b){return a&&b&&a!==b}
+
+function canAcquireDebt(){return endgameStarter===null&&!gameEnded&&!specialOwners(cfg=>cfg.onAcquire?.disableFutureDebt).length}
+function acquireDebt(p,n=1){
+ n=Math.max(0,Math.floor(+n||0));
+ if(!canAcquireDebt()||!n)return 0;
+ let take=Math.min(n,komePlace);
+ commandCounts[p]=(commandCounts[p]||0)+take;
+ komePlace-=take;
+ return take
+}
+
+// 枚数制限のある獲得物を対象順に配る共通処理。
+// 「全員」は発動者から、「自分以外」は次のプレイヤーから開始する。
+// 各対象の指定枚数を配り切ってから次の対象へ進み、在庫が尽きたら終了。
+function distributeLimitedAcquisition(owner,target,amount,acquire){
+ const includeOwner=target==='all';
+ if(target!=='all'&&target!=='others')throw Error('不正な配布対象: '+target);
+ const count=Math.max(0,Math.floor(Number(amount)||0)),results=[];
+ for(let offset=includeOwner?0:1;offset<playerCount;offset++){
+  const p=(owner+offset)%playerCount;
+  const got=count>0?Math.max(0,Number(acquire(p,count))||0):0;
+  results.push({player:p,requested:count,received:got});
+  if(got<count)break;
+ }
+ return results;
+}
+// 《領主会議》など、発動者とほかの全員で獲得枚数が違う効果用。
+function distributeLimitedByQuota(owner,target,quota,acquire){
+ const includeOwner=target==='all',results=[];
+ if(target!=='all'&&target!=='others')throw Error('不正な配布対象: '+target);
+ for(let offset=includeOwner?0:1;offset<playerCount;offset++){
+  const p=(owner+offset)%playerCount;
+  const n=Math.max(0,Math.floor(Number(typeof quota==='function'?quota(p):quota)||0));
+  const got=n>0?Math.max(0,Number(acquire(p,n))||0):0;
+  results.push({player:p,requested:n,received:got});
+  if(got<n)break;
+ }
+ return results;
+}
+function distributeDebt(owner,target,amount){return distributeLimitedAcquisition(owner,target,amount,acquireDebt)}
+function distributeCommandsByQuota(owner,target,quota){return distributeLimitedByQuota(owner,target,quota,(p,n)=>{let got=0;for(let i=0;i<n;i++){if(!drawBread(p))break;got++}return got})}
+
+// Ver.0.3.55: 特殊カード設定駆動API＋追加パック拡張API。
+function packRuntimeApi(owner=turn){
+ return {
+  owner,
+  get turn(){return turn}, get playerCount(){return playerCount},
+  get powers(){return powers}, get commandCounts(){return commandCounts},
+  get dice(){return dice}, get hands(){return hands}, get installed(){return installed},
+  get temporary(){return temporary}, get employees(){return employees},
+  get breadHands(){return breadHands}, get discard(){return discard},
+  debtSupply(){return komePlace}, isFinalTurn(){return endgameStarter!==null||gameEnded}, canHire(){return (employees[turn]||[]).length<effectiveHireLimit()},
+  hireNamedN(id){if((employees[turn]||[]).length>=effectiveHireLimit())return false;let e=packCastPool('N').find(x=>x.id===id);if(!e)return false;finalizeHire({...e},'《緊急補充人員》：');return true},
+  notice(msg){if(msg)triggerNotices.push(String(msg))}, redraw(){renderGame()},
+  resource(p,key,delta,source='effect'){if(!powers[p]||!['y','p','r'].includes(key))return false;if(delta>0)return gainResource(p,key,delta,source)>0;let next=powers[p][key]+delta;if(next<0)return false;powers[p][key]=next;return true},
+  setResources(p,next){if(!powers[p])return false;for(const k of ['y','p','r']){const v=Math.max(0,+next[k]||0);if(v<=powers[p][k])powers[p][k]=v;else gainResource(p,k,v-powers[p][k],'effect')}return true},
+  clearResources(p){if(!powers[p])return false;powers[p]={y:0,p:0,r:0};return true},
+  debt(p){return commandCounts[p]||0},
+  addDebt(p,n=1){return acquireDebt(p,n)},
+  distributeDebt(target,n=1){return distributeDebt(owner,target,n)},
+  distributeCommandsByQuota(target,quota){return distributeCommandsByQuota(owner,target,quota)},
+  removeDebt(p,n=1){if(depressionDebtLocked(p))return 0;n=Math.max(0,Math.floor(+n||0));let take=Math.min(n,commandCounts[p]||0);commandCounts[p]-=take;komePlace+=take;return take},
+  clearDebt(p){if(depressionDebtLocked(p))return 0;let n=commandCounts[p]||0;commandCounts[p]=0;komePlace+=n;return n},
+  useDie(id){let d=dice.find(x=>x.id===+id&&!x.used);if(!d)return false;d.used=true;return true},
+  useAnyCost(choice){return consumeCostChoice(choice)}, useNumberCost(choice,value){return consumeCostChoice(choice,value)},
+  drawBread(p=owner){return drawBread(p)}, drawCard(){return drawOne()},
+  install(p,card){registerInstallation(p,card)},
+  discardInstalled(p,index){if(!installed[p]?.[index])return null;let c=installed[p].splice(index,1)[0];discard.push(c);return c},
+  completeTurn(){completeEnd()}, cardPool(rarity){return packCastPool(rarity)}
+ }
+}
+function runPackCardHook(card,name,ctx={}){
+ let fn=card?.hooks?.[name]; if(typeof fn!=='function')return false;
+ fn({...ctx,card,api:packRuntimeApi(ctx.owner??turn)}); return true
+}
+function runInstalledPackHooks(name,owner){
+ [...(installed[owner]||[]),...(temporary[owner]||[])].forEach(card=>runPackCardHook(card,name,{owner}))
+}
+
+function card(c,count=1,click=false){let e=document.createElement(click?'button':'div');if(click)e.type='button';let imgSrc=resolvedContentImage(c);e.className='card'+(imgSrc?' hasimg':'');let typeLabel=c.type==='S'?'STANDARD':c.type==='LEGEND'?'LEGEND':'NORMAL';e.innerHTML=(imgSrc?'<img class="cardimg zoomable" src="'+imgSrc+'" alt="'+c.name+'"><div class="cardmeta"><strong>'+c.name+'</strong><span class="small">'+typeLabel+'</span></div>':'<span class="small">'+typeLabel+'</span><strong>'+c.name+'</strong>')+(count>1?'<span class="badge">×'+count+'</span>':'');if(imgSrc){let img=e.querySelector('img');img.onerror=()=>{let ph=document.createElement('div');ph.className='cardimg cardimg-missing';ph.textContent='NO IMAGE';img.replaceWith(ph)}}return e}
+const KOKORYO_RULE_PACKS=window.KOKORYO_RULE_PACKS||{};
+function enabledRuleCards(){return Object.values(KOKORYO_RULE_PACKS).filter(p=>gameSettings.enabledRulePacks?.includes(p.id)).flatMap(p=>p.ruleCards||[])}
+function resolveActiveRuleCards(){let pool=enabledRuleCards();if(!pool.length){gameSettings.activeRuleCards=[];return []}let chosen=null;if(gameSettings.ruleCardMode==='random')chosen=pool[Math.floor(Math.random()*pool.length)];else chosen=pool.find(x=>x.id===gameSettings.ruleCardChoice)||pool[0];gameSettings.activeRuleCards=chosen?[chosen.id]:[];return chosen?[chosen]:[]}
+function activeRuleCards(){let ids=gameSettings.activeRuleCards||[];return enabledRuleCards().filter(x=>ids.includes(x.id))}
+function hasActiveRule(id){return activeRuleCards().some(rc=>rc.id===id)}
+function effectiveHireLimit(){let bonus=hasActiveRule('RC3')?1:0;for(const c of allFieldCards(turn))if(c.special==='hireCapacity'||c.special==='bigCompany'||c.special==='changeOfHeart')bonus++;return gameSettings.hireLimit+bonus}
+function isHireFree(){return hasActiveRule('RC3')}
+function runRuleHook(name,ctx={}){activeRuleCards().forEach(rc=>{let fn=rc.hooks?.[name];if(typeof fn==='function')fn({...ctx,api:{discardMarketAndRefill(){blockAllMarketUndo('RC効果で市場を入れ替えました。');discard.push(...market);market=[];refillTo8()},addDebt(player,n=1){return acquireDebt(player,n)},notice(msg){triggerNotices.push(msg)}}})})}
+function fillRCSelect(sel){let el=q(sel);if(!el)return;let cards=Object.values(KOKORYO_RULE_PACKS).flatMap(p=>p.ruleCards||[]);el.innerHTML='';cards.forEach(rc=>{let o=document.createElement('option');o.value=rc.id;o.textContent=rc.id+'《'+rc.name+'》';el.appendChild(o)});el.value=gameSettings.ruleCardChoice||cards[0]?.id||''}
+function refreshActiveRulesButton(){let b=q('#showActiveRules');if(b)b.classList.toggle('hidden',activeRuleCards().length===0)}
+function showActiveRules(){let list=q('#activeRulesList');if(!list)return;let cards=activeRuleCards();list.innerHTML='';if(!cards.length){let e=document.createElement('div');e.className='notice';e.textContent='現在適用中の追加ルールはありません。';list.appendChild(e)}else cards.forEach(rc=>{let e=document.createElement('div');e.className='notice';e.style.marginBottom='10px';e.innerHTML='<strong>'+escapeHtml(rc.id)+'《'+escapeHtml(rc.name)+'》</strong><div class="small" style="margin-top:6px;line-height:1.5">'+escapeHtml(rc.effectText||'説明はありません。')+'</div>';list.appendChild(e)});q('#activeRulesModal').classList.remove('hidden')}
+function captureLocalRuleSettings(){
+ let chosenDeck=q('#deckPreset')?.value||'standard1';
+ let maxLegend=legendSlotMax(chosenDeck);
+ gameSettings.winVP=Math.max(1,Math.floor(Number(q('#settingWinVP')?.value)||20));
+ if(q('#settingWinVP'))q('#settingWinVP').value=String(gameSettings.winVP);
+ gameSettings.marketTypes=Math.max(1,Math.floor(Number(q('#settingMarketTypes')?.value)||8));
+ gameSettings.initialResources=Math.max(0,Math.floor(Number(q('#settingInitialResources')?.value)||0));
+ gameSettings.handLimit=Math.max(1,Math.floor(Number(q('#settingHandLimit')?.value)||6));
+ gameSettings.hireLimit=Math.max(0,Math.floor(Number(q('#settingHireLimit')?.value)||0));
+ gameSettings.legendSlots=Math.max(1,Math.min(maxLegend,Math.floor(Number(q('#settingLegendSlots')?.value)||3)));
+ gameSettings.deckId=chosenDeck;
+ return chosenDeck
+}
+function start(){let chosenDeck=captureLocalRuleSettings();if(DECK_PRESETS[chosenDeck]&&!deckPresetAvailable(chosenDeck))return alert('このデッキに必要なカードが一部使用できないため選択できません。');let slots=gameSettings.legendSlots;if(chosenDeck==='custom'&&customDeck.lowerLegendKeys.length<6)return alert('カスタムデッキはLower Legendを最低6種類採用してください。');if(slots>legendSlotMax(chosenDeck))return alert('下位レジェンド数がデッキの設定上限を超えています。');q('#endturn').disabled=false;q('#reroll').disabled=false;playerCount=+q('#playerCount').value;resolveActiveRuleCards();
+ if(gameSettings.deckId==='standard2')gameSettings.enabledPacks=['pack1']; if(gameSettings.deckId==='standard3')gameSettings.enabledPacks=['pack2']; if(gameSettings.deckId==='allcards')gameSettings.enabledPacks=['pack1','pack2'];syncMarketTargetUI();let groups=[...document.querySelectorAll('#characterSelects .char-row')].slice(0,playerCount).map(x=>x.dataset.family);if(new Set(groups).size!==groups.length)return alert('同じキャラクターは選択できません。');characters=selectedCharacterIds().slice(0,playerCount);characterMode=characters[0];resetGameEndState();let s=sh(STD);packs=Array.from({length:playerCount},()=>s.splice(0,5));unusedStd=s;hands=Array.from({length:playerCount},()=>[]);selected=Array(playerCount).fill(false);powers=Array.from({length:playerCount},()=>({y:0,r:0,p:0}));installed=Array.from({length:playerCount},()=>[]);temporary=Array.from({length:playerCount},()=>[]);elekiterUsed=Array(playerCount).fill(false);commandCounts=Array(playerCount).fill(0);komePlace=100;pendingParkPlayers=[];pendingParkTaken=[];breadDeck=makeBreadDeck();breadDiscard=[];breadHands=Array.from({length:playerCount},()=>[]);employeeDeck=[];employees=Array.from({length:playerCount},()=>[]);lordOracleUsed=Array(playerCount).fill(false);lordTributeUsed=Array(playerCount).fill(false);lordFirstBreadUsed=Array(playerCount).fill(false);lordOverclockUsed=Array(playerCount).fill(false);pendingOverclockChoices=[];debugVP=Array(playerCount).fill(0);graveyardUsed=Array(playerCount).fill(false);publicMarketUsed=Array(playerCount).fill(false);hiredThisTurn=false;organizationUsed=[];nightEscapePostAvailable=false;nightEscapeResetNext=Array(playerCount).fill(false);fusionUsedThisTurn=false;pendingSSRBonus=0;pendingCastResourceChoices=[];playLogReset();round=0;viewer=0;deck=[];market=[];discard=[];selectedMarketKey=null;marketUndoHistory=[];commandUndoHistory=[];dialogLog=[];let dlc=q('#dialogLogCount');if(dlc)dlc.textContent='0';turn=0;dice=[];q('#setup').classList.add('hidden');q('#draft').classList.remove('hidden');q('#game').classList.add('hidden');q('#start').textContent='最初から';q('#status').textContent='第1巡：各自5枚から1枚選択。全員終了後に一斉パスします。';renderDraft()}
+function renderDraft(){q('#round').textContent=round+1;q('#who').textContent='プレイヤー'+(viewer+1);q('#progress').textContent=selected.filter(Boolean).length+'/'+playerCount+'人選択済み';q('#draftOwnedSummary').textContent='所持 '+hands[viewer].length+'枚';q('#instruction').textContent='プレイヤー'+(viewer+1)+'：欲しいカードそのものをタップして選択';let e=q('#cards');e.innerHTML='';if(!selected[viewer])packs[viewer].forEach((c,i)=>{let w=document.createElement('div');w.className='draft-card-wrap';let b=card(c,1,true);let ef=document.createElement('div');ef.className='card-effect-inline';ef.replaceChildren(cardInfoSections(c));b.appendChild(ef);b.onclick=()=>pick(i);w.appendChild(b);e.appendChild(w)});else{let done=document.createElement('div');done.className='notice';done.style.gridColumn='1/-1';done.textContent='この巡のカードは選択済みです。次のプレイヤーを選択してください。';e.appendChild(done)}let ps=q('#players');ps.innerHTML='';hands.forEach((h,p)=>{let b=document.createElement('button');b.type='button';b.className='player '+(p===viewer?'active':'');b.innerHTML='<strong>P'+(p+1)+'</strong><div class="muted">獲得 '+h.length+'/3</div><div class="small">'+(selected[p]?'選択済み':'未選択')+'</div>';b.onclick=()=>{viewer=p;renderDraft()};ps.appendChild(b)})}
+function showDraftOwnedCards(){let m=q('#draftOwnedModal'),e=q('#draftOwnedList');q('#draftOwnedTitle').textContent='P'+(viewer+1)+'の獲得済みカード';e.innerHTML='';if(!hands[viewer].length){let x=document.createElement('div');x.className='notice';x.style.gridColumn='1/-1';x.textContent='まだカードを獲得していません。';e.appendChild(x)}else hands[viewer].forEach(c=>{let w=document.createElement('div');w.appendChild(card(c,1,false));let ef=document.createElement('div');ef.className='card-effect-inline';ef.textContent=effectText(c);w.appendChild(ef);e.appendChild(w)});m.classList.remove('hidden')}
+function showCharacterAbility(){let lord=CHARACTER_DATA[charOf(turn)];if(!lord)return;q('#abilityModalTitle').innerHTML='《'+escapeHtml(lord.uniqueAbility||'')+'》'+abilityStackTag(lord.uniqueAbility);q('#abilityModalCharacter').textContent=(lord.title?lord.title+' ':'')+lord.name;q('#abilityModalText').textContent=characterAbilityText(lord)||'能力説明はありません。';q('#abilityModal').classList.remove('hidden')}
+function pick(i){if(selected[viewer])return;hands[viewer].push(packs[viewer][i]);packs[viewer].splice(i,1);selected[viewer]=true;if(selected.every(Boolean)){if(round===2){setupGame();return}let old=packs.map(x=>[...x]),next=Array.from({length:playerCount},()=>[]);for(let p=0;p<playerCount;p++)next[(p+1)%playerCount]=old[p];packs=next;round++;selected=Array(playerCount).fill(false);viewer=0;q('#status').textContent='残り'+packs[0].length+'枚を一斉に次のプレイヤーへ渡しました。';renderDraft();return}let n=viewer;do{n=(n+1)%playerCount}while(selected[n]);viewer=n;renderDraft()}
+function drawOne(){if(!deck.length&&discard.length){deck=sh(discard);discard=[]}let c=deck.shift()||null;if(c&&deck.length===0&&discard.length){deck=sh(discard);discard=[]}return c}
+function syncMarketTargetUI(){let e=q('#marketTarget');if(e)e.textContent=String(Math.max(1,Math.floor(Number(gameSettings.marketTypes)||8)))}
+function refillMarket(){
+ let target=Math.max(1,Math.floor(Number(gameSettings.marketTypes)||8));
+ gameSettings.marketTypes=target;
+ syncMarketTargetUI();
+ let keys=new Set(market.map(c=>c.key));
+ while(keys.size<target){
+  let c=drawOne();if(!c)break;
+  market.push(c);keys.add(c.key)
+ }
+}
+function refillTo8(){refillMarket()}
+const LEGEND_CATALOG=[
+{id:'LU1',tier:'upper',name:'クラレント',vp:-5,special:'amanomurakumo',effectText:'このカードを設置したとき、即座にゲームを終了する。'},
+{id:'LU2',tier:'upper',name:'ユグドラシル',vp:8,special:'mayqueen',effectText:'ターン開始時、自分の場にあるターン開始時効果を持つカードを1枚選んで、その効果を発動する。この効果を2回行う。'},
+{id:'LU3',tier:'upper',name:'創世記',vp:0,special:'eggharp',effectText:'このカードを設置したとき、手札または公開カードから好きなカードを1枚選んで、コストを支払わずに設置する。この効果を4回行う。'},
+{id:'LU4',tier:'upper',name:'シークレット・サーティーン',vp:3,special:'changeOfHeart',effectText:'このカードを設置したとき、他のプレイヤーの雇用キャラクターを1人選んで、自分の雇用キャラクターにする。このカードが場にある限り、雇用上限を1増やす。',cost:{y:24,r:0,p:0}},
+{id:'LU5',tier:'upper',name:'神々の黄昏',vp:5,special:'resourceWipe',effectText:'ターン開始時、このカードの真下に下位レジェンドがない場合、コストを支払わずにこのカードを設置する。このカードを設置したとき、全てのプレイヤーは資源を全て捨てる。その後、このカードを設置したプレイヤーのターンを終了する。'},
+{id:'LU6',tier:'upper',name:'パーフェクト・イミテーション',vp:10,special:'abilityCopy',effectText:'ターン開始時、場にいるキャラクターの固有能力を1つ選んで、このターン使用できる。ただし、初回限定の効果は発動しない。',allFaces:true,cost:{y:4,r:4,p:4}},
+{id:'LL1',tier:'lower',name:'ミスリルラッシュ',vp:5,special:'legendmine',faces:[1,2],target:'鉱山',resource:'資金'},
+{id:'LL2',tier:'lower',name:'ゴールデンフィールド',vp:5,special:'legendfarm',faces:[3,4],target:'農場',resource:'食料'},
+{id:'LL3',tier:'lower',name:'エインヘリヤル',vp:5,special:'legendbarracks',faces:[5,6],target:'兵舎',resource:'兵力'},
+{id:'LL4',tier:'lower',name:'ビギニング・オブ・レジェンド',vp:1,special:'talentRecruit',anyDice:4,cost:{y:20,r:0,p:0}},
+{id:'LL5',tier:'lower',name:'ジェネシスワールド',vp:8,special:'scorchedEarth',allFaces:true,cost:{y:4,r:4,p:4}},
+{id:'LL6',tier:'lower',name:'メモリークラッシュ',vp:2,special:'greatRefresh',anyDice:4,cost:{y:3,r:3,p:3}}
+];
+Object.values(KOKORYO_PACKS).forEach(pack=>(pack.legends||[]).forEach(L=>LEGEND_CATALOG.push({...L,packId:pack.id})));
+function initLegends(){
+ const cfg=activeDeckConfig(gameSettings.deckId),slots=Math.max(1,Math.min(legendSlotMax(gameSettings.deckId),gameSettings.legendSlots));
+ let lowerPool=cfg.lowerLegendKeys.map(k=>LEGEND_CATALOG.find(x=>x.id===k)).filter(x=>x&&isPackEnabled(x.packId));
+ let upperPool=cfg.upperLegendKeys.map(k=>LEGEND_CATALOG.find(x=>x.id===k)).filter(x=>x&&isPackEnabled(x.packId));
+ let lowers=sh(lowerPool).slice(0,slots);
+ const sets=[...new Set(lowerPool.map(x=>x.layoutSet).filter(Boolean))];
+ for(const set of sets){let members=lowerPool.filter(x=>x.layoutSet===set),picked=members.filter(x=>lowers.some(y=>y.id===x.id));if(picked.length&&picked.length<members.length){if(slots<members.length){lowers=lowers.filter(x=>x.layoutSet!==set);while(lowers.length<slots){let c=sh(lowerPool.filter(x=>x.layoutSet!==set&&!lowers.some(y=>y.id===x.id)))[0];if(!c)break;lowers.push(c)}}else for(const m of members.filter(x=>!lowers.some(y=>y.id===x.id))){let i=lowers.findIndex(x=>x.layoutSet!==set);if(i>=0)lowers[i]=m}}}
+ let uppers=[],usedUpper=new Set(),reserved=new Set(lowerPool.map(x=>x.pairedUpperId).filter(Boolean));
+ for(const L of lowers){let U=L.pairedUpperId&&upperPool.find(x=>x.id===L.pairedUpperId&&!usedUpper.has(x.id));if(!U)U=sh(upperPool.filter(x=>!usedUpper.has(x.id)&&!reserved.has(x.id)))[0];if(U){uppers.push(U);usedUpper.add(U.id)}}
+ let n=Math.min(lowers.length,uppers.length,slots);legends=[];for(let col=0;col<n;col++){legends.push({...uppers[col],col,taken:false,unlocked:false});legends.push({...lowers[col],col,taken:false,unlocked:true})}
+}
+function legendCostChoices(L){let faces=L.faces||[];let rs=[];unusedDice().filter(d=>faces.includes(d.value)).forEach(d=>rs.push({kind:'die',id:d.id,label:'🎲'+d.value+'（#'+d.id+'）'}));breadHands[turn].forEach((b,i)=>{let v=b.value;if(v==='any'||faces.includes(v))rs.push({kind:'bread',i,label:'命令書'+breadLabel(b)});});return rs}
+function legendAnyChoices(){let rs=[];unusedDice().forEach(d=>rs.push({kind:'die',id:d.id,label:'🎲'+d.value}));breadHands[turn].forEach((b,i)=>rs.push({kind:'bread',i,label:'命令書'+breadLabel(b)}));return rs}
+function legendAllFacesChoices(){let out=[],usedDice=new Set(),usedBread=new Set();for(let v=1;v<=6;v++){let d=unusedDice().find(x=>x.value===v&&!usedDice.has(x.id));if(d){usedDice.add(d.id);out.push({kind:'die',id:d.id});continue}let bi=breadHands[turn].findIndex((b,i)=>!usedBread.has(i)&&(b.value===v||b.value==='any'));if(bi<0)return null;usedBread.add(bi);out.push({kind:'bread',i:bi})}return out}
+function payLegendResources(cost={}){for(let k of ['y','r','p'])if(powers[turn][k]<(cost[k]||0))return false;for(let k of ['y','r','p'])powers[turn][k]-=(cost[k]||0);return true}
+function consumeLegendItems(items){
+ let breadIdx=items.filter(x=>x.kind==='bread').map(x=>x.i).sort((a,b)=>b-a);
+ items.filter(x=>x.kind==='die').forEach(x=>useDie(x.id));
+ breadIdx.forEach(i=>breadDiscard.push(breadHands[turn].splice(i,1)[0]));recycleBreadIfEmpty();
+}
+function legendSameFaceChoices(face){let rs=[];unusedDice().filter(d=>d.value===face).forEach(d=>rs.push({kind:'die',id:d.id}));breadHands[turn].forEach((b,i)=>{if(b.value==='any'||b.value===face)rs.push({kind:'bread',i})});return rs}
+function chooseNamedHireForLegend(){
+ if((employees[turn]||[]).length>=effectiveHireLimit()){triggerNotices.push('《ビギニング・オブ・レジェンド》：雇用枠が上限のため雇用できませんでした。');return}
+ let pool=['N','R','SR','SSR','UR'].flatMap(r=>implementedCastPool(r));
+ if(!pool.length){triggerNotices.push('《ビギニング・オブ・レジェンド》：雇用可能なキャラクターがいません。');return}
+ let modal=document.createElement('div');modal.className='imgmodal';modal.style.zIndex='10020';
+ let box=document.createElement('div');box.className='game-confirm-box';box.style.maxWidth='900px';box.style.maxHeight='90vh';box.style.overflow='auto';
+ let head=document.createElement('div');head.className='row';let title=document.createElement('strong');title.textContent='《ビギニング・オブ・レジェンド》：雇用するキャラクターを選択';let close=document.createElement('button');close.className='secondary';close.textContent='閉じる';close.onclick=()=>modal.remove();head.append(title,close);box.appendChild(head);
+ let note=document.createElement('div');note.className='small';note.style.marginTop='6px';note.textContent='キャラクター名と能力を確認してタップしてください。';box.appendChild(note);
+ let grid=document.createElement('div');grid.className='employee-card-grid';grid.style.marginTop='10px';grid.style.display='flex';grid.style.flexWrap='wrap';grid.style.gap='8px';
+ pool.forEach(e=>{let wrap=document.createElement('div');wrap.className='employee-card-wrap';wrap.style.flex='1 1 150px';wrap.style.maxWidth='180px';let btn=document.createElement('button');btn.type='button';btn.className='employee-card';btn.style.width='100%';btn.style.textAlign='left';btn.style.cursor='pointer';btn.appendChild(employeeCardView(e));btn.onclick=()=>{let chosen={...e};employees[turn].push(chosen);triggerNotices.push('《ビギニング・オブ・レジェンド》：'+chosen.rarity+'「'+castDisplayName(chosen)+'」を雇用しました。');modal.remove();renderGame()};wrap.appendChild(btn);grid.appendChild(wrap)});
+ box.appendChild(grid);modal.appendChild(box);document.body.appendChild(modal);
+}
+function fieldDestroyCandidates(p){let a=[];(installed[p]||[]).forEach((c,i)=>{if(c.type!=='LEGEND')a.push({zone:'installed',i,c})});(temporary[p]||[]).forEach((c,i)=>{if(c.type!=='LEGEND')a.push({zone:'temporary',i,c})});return a}
+function destroyChosenFieldCard(p,title){let a=fieldDestroyCandidates(p);if(!a.length)return null;let msg=a.map((x,i)=>(i+1)+'. '+x.c.name+(x.zone==='temporary'?'（仮設置）':'')).join('\n');let raw=turnClockPrompt(title+'\n捨てるカードを番号で選んでください。\n\n'+msg,'1');let n=Math.floor(+raw);if(!n||!a[n-1])n=1;let x=a[n-1],arr=x.zone==='temporary'?temporary[p]:installed[p],c=arr.splice(x.i,1)[0];if(c)discard.push(c);return c}
+function resolveScorchedEarth(owner){let first=destroyChosenFieldCard(owner,'《ジェネシスワールド》：まず自分のカードを1枚選択');if(first)triggerNotices.push('《ジェネシスワールド》：P'+(owner+1)+'の「'+first.name+'」を捨てました。');for(let p=0;p<playerCount;p++){let c=destroyChosenFieldCard(p,'《ジェネシスワールド》：P'+(p+1)+'から1枚選択');if(c)triggerNotices.push('《ジェネシスワールド》：P'+(p+1)+'の「'+c.name+'」を捨てました。')}}
+function resolveGreatRefresh(){for(let p=0;p<playerCount;p++){let n=(hands[p]||[]).length+(breadHands[p]||[]).length;discard.push(...(hands[p]||[]));hands[p]=[];breadDiscard.push(...(breadHands[p]||[]));breadHands[p]=[];for(let i=0;i<n;i++){let c=drawOne();if(c)hands[p].push(c)}let gain=Math.floor(n/2);if(gain){gainResource(p,'y',gain,'effect');gainResource(p,'p',gain,'effect');gainResource(p,'r',gain,'effect')}triggerNotices.push('《メモリークラッシュ》：P'+(p+1)+'は負債を残し、'+n+'枚を捨て札にして通常カードを引き、資金・食料・兵力をそれぞれ'+gain+'個獲得しました。')}}
+let legendPaymentPending=false;
+function selectLegendPayment(L,mode,needed,face=null){
+ return new Promise(resolve=>{
+  const owner=turn;
+  const options=mode==='all'?legendAnyChoices():mode==='same'?legendSameFaceChoices(face):mode==='any'?legendAnyChoices():legendCostChoices(L);
+  const selected=new Set();
+  const overlay=document.createElement('div');overlay.className='imgmodal';overlay.style.zIndex='10040';
+  const panel=document.createElement('div');panel.className='game-confirm-box';panel.style.cssText='width:min(94vw,580px);max-height:85vh;overflow:auto';
+  const title=document.createElement('h3');title.textContent=L.name+'：サイコロ／命令書の選択';panel.appendChild(title);
+  const guide=document.createElement('div');guide.className='small';guide.textContent='設置コスト：'+costTextForCard(L)+' ／ '+needed+'個を選択してください。';panel.appendChild(guide);
+  const status=document.createElement('div');status.className='small';status.style.margin='10px 0';panel.appendChild(status);
+  const grid=document.createElement('div');grid.style.cssText='display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:7px';panel.appendChild(grid);
+  const buttons=[];
+  function valid(){
+   if(selected.size!==needed)return false;
+   if(mode!=='all')return true;
+   const counts=Array(7).fill(0);
+   for(const i of selected){const o=options[i];if(o.kind==='die'){let d=unusedDice().find(x=>x.id===o.id);if(d)counts[d.value]++}else{let b=breadHands[owner][o.i];if(b&&b.value!=='any')counts[b.value]++}}
+   const anys=[...selected].filter(i=>options[i].kind==='bread'&&breadHands[owner][options[i].i]?.value==='any').length;
+   return counts.slice(1).every(n=>n<=1)&&counts.slice(1).filter(n=>n===0).length<=anys;
+  }
+  const actions=document.createElement('div');actions.className='row';actions.style.marginTop='14px';
+  const cancel=document.createElement('button');cancel.className='secondary';cancel.textContent='キャンセル';
+  const confirm=document.createElement('button');confirm.className='primary';confirm.textContent='選択したコストで獲得';
+  function finish(result){overlay.remove();resolve(result)}
+  overlay.dataset.turnClockPayment="true";overlay.__turnClockCancel=()=>finish(null);
+  cancel.onclick=()=>finish(null);
+  function redraw(){status.textContent=selected.size+'/'+needed+'個選択'+(mode==='all'?'（1～6の各出目が必要）':'');confirm.disabled=!valid();buttons.forEach((b,i)=>{b.style.outline=selected.has(i)?'3px solid #2369b4':''})}
+  options.forEach((o,i)=>{let b=document.createElement('button');b.className='secondary';b.type='button';let d=o.kind==='die'?unusedDice().find(x=>x.id===o.id):null;b.textContent=o.label||(o.kind==='die'?'🎲'+(d?.value??'?')+' (#'+o.id+')':'命令書 '+breadLabel(breadHands[owner][o.i]));b.onclick=()=>{if(selected.has(i))selected.delete(i);else if(selected.size<needed)selected.add(i);redraw()};buttons.push(b);grid.appendChild(b)});
+  confirm.onclick=()=>{if(turn!==owner||!valid())return;finish([...selected].map(i=>options[i]))};
+  actions.append(cancel,confirm);panel.appendChild(actions);overlay.appendChild(panel);document.body.appendChild(overlay);redraw();
+ });
+}
+async function takeLegend(id){
+ if((onlineDebugMode||realOnlineMainMode)&&viewer!==turn)return alert('相手ターン中はレジェンドを獲得できません。');
+ if(depressionLegendLocked(turn))return alert('《世界恐慌》の所有者は他のレジェンドを獲得できません。');if(legendPaymentPending)return; if(legendTakenThisTurn)return alert('レジェンドカードは1ターンに1枚までです。');let L=legends.find(x=>x.id===id);if(!L||L.taken)return;if(specialEffectId(L)==='goldenAge'||specialEffectId(L)==='greatDepression')return alert('このレジェンドはターン開始時の確認ポップアップから獲得します。');if(!L.unlocked)return alert('まだ解放されていません。');
+ if(L.tier==='lower'){
+  if(L.special==='moneyLaundering'){if(powers[turn].y<20)return alert('資金20が必要です。');powers[turn].y-=20}
+  else if(L.special==='boom'||L.special==='recession'){
+   const faces=L.special==='boom'?[1,2]:[3,4,5,6];
+   const options=legendAnyChoices().filter(o=>o.kind==='die'?faces.includes(unusedDice().find(d=>d.id===o.id)?.value):breadHands[turn][o.i]?.value==='any'||faces.includes(breadHands[turn][o.i]?.value));
+   if(options.length<5)return alert('指定された出目のサイコロ／命令書が5個必要です。');
+   legendPaymentPending=true;let chosen=await selectLegendPayment({...L,faces},'faces',5);legendPaymentPending=false;
+   if(!chosen)return;consumeLegendItems(chosen)
+  }
+  else if(L.special==='talentRecruit'){if((employees[turn]||[]).length>=effectiveHireLimit())return alert('《ビギニング・オブ・レジェンド》には空き雇用枠が1つ必要です。');let rs=legendAnyChoices();if(rs.length<4)return alert('任意のサイコロ／命令書が4個必要です。');if(powers[turn].y<20)return alert('資金20が必要です。');legendPaymentPending=true;let chosen=await selectLegendPayment(L,'any',4);legendPaymentPending=false;if(!chosen)return;consumeLegendItems(chosen);powers[turn].y-=20}
+  else if(L.special==='scorchedEarth'){let rs=legendAllFacesChoices();if(!rs)return alert('1～6のサイコロ／命令書を1個ずつそろえる必要があります。');if(powers[turn].y<4||powers[turn].r<4||powers[turn].p<4)return alert('資金・兵力・食料が4個ずつ必要です。');legendPaymentPending=true;let chosen=await selectLegendPayment(L,'all',6);legendPaymentPending=false;if(!chosen)return;consumeLegendItems(chosen);powers[turn].y-=4;powers[turn].r-=4;powers[turn].p-=4}
+  else if(L.special==='greatRefresh'){let rs=legendAnyChoices();if(rs.length<4)return alert('任意のサイコロ／命令書が4個必要です。');if(powers[turn].y<3||powers[turn].r<3||powers[turn].p<3)return alert('資金・兵力・食料が3個ずつ必要です。');legendPaymentPending=true;let chosen=await selectLegendPayment(L,'any',4);legendPaymentPending=false;if(!chosen)return;consumeLegendItems(chosen);powers[turn].y-=3;powers[turn].r-=3;powers[turn].p-=3}
+  else{let ri=L.resource==='資金'?'y':L.resource==='食料'?'p':'r';if(powers[turn][ri]<8)return alert(L.resource+'8が必要です。');let rs=legendCostChoices(L);if(rs.length<3)return alert('対応するサイコロ／命令書が3個必要です。');legendPaymentPending=true;let chosen=await selectLegendPayment(L,'faces',3);legendPaymentPending=false;if(!chosen)return;consumeLegendItems(chosen);powers[turn][ri]-=8}
+ }else if(L.special==='changeOfHeart'){
+  if(powers[turn].y<24)return alert('資金24が必要です。');let targets=[];for(let p=0;p<playerCount;p++)if(p!==turn)(employees[p]||[]).forEach((e,i)=>targets.push({p,i,e}));if(!targets.length)return alert('奪える雇用キャラクターがいません。');let msg=targets.map((x,i)=>(i+1)+'. P'+(x.p+1)+' '+x.e.rarity+' '+castDisplayName(x.e)).join('\n');let raw=turnClockPrompt('《シークレット・サーティーン》\n奪う雇用キャラクターを選んでください。\n\n'+msg,'1');let n=Math.floor(+raw);if(!n||!targets[n-1])return;let x=targets[n-1];powers[turn].y-=24;let e=employees[x.p].splice(x.i,1)[0];employees[turn].push(e);triggerNotices.push('《シークレット・サーティーン》：P'+(x.p+1)+'の「'+castDisplayName(e)+'」をP'+(turn+1)+'が獲得しました。');
+ }else if(L.special==='resourceWipe'){
+  return alert('《'+L.name+'》はターン開始時の特殊取得でのみ獲得できます。');
+ }else if(L.special==='abilityCopy'){
+  let rs=legendAllFacesChoices();if(!rs)return alert('1～6のサイコロ／命令書を1個ずつそろえる必要があります。');if(powers[turn].y<4||powers[turn].r<4||powers[turn].p<4)return alert('資金・兵力・食料が4個ずつ必要です。');legendPaymentPending=true;let chosen=await selectLegendPayment(L,'all',6);legendPaymentPending=false;if(!chosen)return;consumeLegendItems(chosen);powers[turn].y-=4;powers[turn].r-=4;powers[turn].p-=4;
+ }else if(L.special==='amanomurakumo'){
+  let face=[2,3,4,5].find(v=>legendSameFaceChoices(v).length>=8);if(!face)return alert('2・3・4・5のいずれか同じ出目を8個そろえる必要があります。');legendPaymentPending=true;let chosen=await selectLegendPayment(L,'same',8,face);legendPaymentPending=false;if(!chosen)return;consumeLegendItems(chosen);
+ }else if(L.special==='mayqueen'){
+  if(powers[turn].y<16)return alert('資金16が必要です。');let rs=legendSameFaceChoices(2);if(rs.length<3)return alert('出目2のサイコロ／命令書が3個必要です。');legendPaymentPending=true;let chosen=await selectLegendPayment(L,'same',3,2);legendPaymentPending=false;if(!chosen)return;consumeLegendItems(chosen);powers[turn].y-=16;
+ }else if(L.special==='eggharp'){
+  if(powers[turn].r<12)return alert('兵力12が必要です。');let rs=legendSameFaceChoices(5);if(rs.length<3)return alert('出目5のサイコロ／命令書が3個必要です。');legendPaymentPending=true;let chosen=await selectLegendPayment(L,'same',3,5);legendPaymentPending=false;if(!chosen)return;consumeLegendItems(chosen);powers[turn].r-=12;
+ }
+ L.taken=true;legendTakenThisTurn=true;
+ if(L.layoutSet&&L.exclusiveLayoutSet)legends.forEach(x=>{if(x!==L&&x.layoutSet===L.layoutSet&&x.tier===L.tier&&!x.taken){x.taken=true;x.eraBlocked=true}});
+ if(L.tier==='lower'){if(L.layoutSet==='economyPair'){legends.filter(x=>x.tier==='upper'&&x.layoutSet==='economyPair'&&!x.taken&&!x.eraBlocked).forEach(x=>x.unlocked=true)}else{let U=legends.find(x=>x.tier==='upper'&&x.col===L.col);if(U&&!U.taken)U.unlocked=true}}
+ let ef=L.tier==='upper'?(L.effectText||effectText({specialEffect:specialEffectId(L),special:specialEffectId(L)})):L.tier==='lower'?(L.effectText|| (L.special==='talentRecruit'?'雇用可能な任意の雇用キャラクターを1人雇用する。':L.special==='scorchedEarth'?'このカードを設置したとき、自分の場の通常カードを1枚選んで捨て札にする。\nその後、各プレイヤーの場の通常カードを1枚ずつ選んで捨て札にする。':L.special==='greatRefresh'?'このカードを設置したとき、全プレイヤーは通常カードと命令書をすべて捨て札にし、その合計枚数と同じ枚数の通常カードを引く。\nその後、各プレイヤーは自身が捨て札にしたカード2枚につき、資金・食料・兵力をそれぞれ1個ずつ獲得する。':'「'+L.target+'」のターン開始時に獲得する'+L.resource+'を3個増やす。\n「'+L.target+'」1枚につきVPを2増やす。')):effectText({specialEffect:specialEffectId(L),special:specialEffectId(L)});let card={key:L.id,name:L.name,type:'LEGEND',specialEffect:specialEffectId(L),special:specialEffectId(L)||'legend',specialConfig:L.specialConfig||L.effectConfig||null,vp:L.vp,effectText:ef};registerInstallation(turn,card);triggerNotices.push(L.name+'を獲得しました。');
+ if(L.special==='talentRecruit')chooseNamedHireForLegend();
+ if(L.special==='scorchedEarth')resolveScorchedEarth(turn);
+ if(L.special==='greatRefresh')resolveGreatRefresh();
+ if(L.special==='eggharp')resolveEggHarp(turn);
+ if(L.special==='amanomurakumo'){renderGame();finishGame();return}
+ renderGame()
+}
+function chooseLegendCard(title,note,opts,onChoose,onCancel){
+ const choiceOwner=turn,choiceClockToken=turnClockState?.token;const canChoose=()=>turnClockLeaseValid(choiceOwner,choiceClockToken)&&(!(onlineDebugMode||realOnlineMainMode)||viewer===choiceOwner);
+ if(!canChoose())return;
+ q('#legendChoiceCancel').style.display='';
+ let m=q('#legendChoiceModal'),grid=q('#legendChoiceCards');q('#legendChoiceTitle').textContent=title;q('#legendChoiceNote').textContent=note||'';grid.innerHTML='';
+ opts.forEach(x=>{let w=document.createElement('div');w.className='card selectable-card';w.style.justifyContent='flex-start';let c=x.c;if(c&&resolvedContentImage(c)){let img=document.createElement('img');img.src=resolvedContentImage(c);img.alt=c.name;img.className='cardimg';img.onerror=()=>{let ph=document.createElement('div');ph.className='muted';ph.textContent='イラスト未設定';img.replaceWith(ph)};w.appendChild(img)}else{let ph=document.createElement('div');ph.className='muted';ph.style.cssText='aspect-ratio:456/701;border:1px dashed #bbb;border-radius:6px;display:flex;align-items:center;justify-content:center;background:#fff;margin-bottom:7px;text-align:center';ph.textContent='イラスト未設定';w.appendChild(ph)}let nm=document.createElement('strong');nm.textContent=x.label||c?.name||'カード';w.appendChild(nm);if(c){let meta=document.createElement('div');meta.className='small';meta.style.marginTop='5px';meta.textContent='VP：'+(c.vp||0);w.appendChild(meta);let ef=document.createElement('div');ef.className='small';ef.style.marginTop='6px';ef.textContent=effectText(c);w.appendChild(ef)}w.onclick=()=>{if(!canChoose()||turn!==choiceOwner)return;m.classList.add('hidden');turnClockChoice=null;onChoose(x)};grid.appendChild(w)});
+ q('#legendChoiceCancel').onclick=()=>{if(!canChoose()||turn!==choiceOwner)return;m.classList.add('hidden');turnClockChoice=null;if(onCancel)onCancel()};m.classList.remove('hidden');
+}
+function resolveEggHarp(owner,n=0){
+ if(n>=4){renderGame();return}let opts=[];hands[owner].forEach((c,i)=>opts.push({src:'hand',i,c,label:'手札：'+c.name}));market.forEach((c,i)=>opts.push({src:'market',i,c,label:'市場：'+c.name}));if(!opts.length){renderGame();return}
+ turnClockChoice={kind:'genesis',owner,n};
+ chooseLegendCard('創世記','コストを無視して設置するカードを選択（'+(n+1)+'/4）',opts,o=>{let c;if(o.src==='hand')c=hands[owner].splice(o.i,1)[0];else{blockAllMarketUndo('創世記で市場カードを設置しました。');c=market.splice(o.i,1)[0]}registerInstallation(owner,c);triggerNotices.push('創世記：「'+c.name+'」をコスト無視で設置しました。');renderGame();resolveEggHarp(owner,n+1)},()=>renderGame());
+}
+function renderLegends(){
+ const box=q('#legendArea');if(!box)return;box.innerHTML='';
+ const count=Math.max(0,...legends.map(x=>x.col))+1;
+ for(let col=0;col<count;col++){
+  const column=document.createElement('div');column.className='card legend-compact-column';
+  for(const tier of ['upper','lower']){
+   const L=legends.find(x=>x.col===col&&x.tier===tier);
+   const item=document.createElement('div');item.className='legend-compact-item';
+   if(!L){item.textContent='—';item.classList.add('muted');column.appendChild(item);continue}
+   if(L.eraBlocked){item.textContent='除外';item.classList.add('muted');column.appendChild(item);continue}
+   const show=()=>openCardImage({src:resolvedContentImage(L)||L.image||'',alt:L.name},L,'legend');
+   const detail=document.createElement('div');detail.className='legend-compact-detail';detail.tabIndex=0;detail.setAttribute('role','button');detail.setAttribute('aria-label',L.name+'のカード詳細を表示');
+   detail.onclick=show;detail.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();show()}};
+   if(L.image||L.id){const img=document.createElement('img');img.src=L.image||('images/legends/'+L.id+'.png');img.alt='';img.className='cardimg';img.onerror=()=>img.remove();detail.appendChild(img)}
+   const name=document.createElement('strong');name.textContent=L.name;detail.appendChild(name);
+   const status=document.createElement('div');status.className='small';status.textContent=(L.taken?'獲得済み ／ ':'')+L.vp+'VP'+(L.eraBlocked?' ／ 選択不可':tier==='upper'&&!L.unlocked?' ／ 未解放':'');detail.appendChild(status);
+   const hint=document.createElement('div');hint.className='small muted';hint.textContent='タッチで効果確認';detail.appendChild(hint);item.appendChild(detail);
+   if(!L.taken){const locked=(tier==='upper'&&!L.unlocked)||!!L.eraBlocked;const button=document.createElement('button');button.className='secondary';button.textContent=L.eraBlocked?'選択不可':locked?'未解放':'獲得';button.disabled=locked||legendTakenThisTurn||((onlineDebugMode||realOnlineMainMode)&&viewer!==turn);button.onclick=()=>takeLegend(L.id);item.appendChild(button)}
+   column.appendChild(item);
+  }
+  box.appendChild(column);
+ }
+}
+
+function setupGame(){playLogEvent('draft_completed',{},true);initLegends();let leftovers=packs.flat(),normalDeck=normalCardsForDeck(gameSettings.deckId);deck=sh([...unusedStd,...leftovers,...normalDeck,...makeRandomizerCards()]);market=[];resetNormalCardAudit();q('#draft').classList.add('hidden');q('#gamestartsetup').classList.remove('hidden');q('#game').classList.add('hidden');q('#status').textContent='適用ルール：勝利'+gameSettings.winVP+'VP／公開'+gameSettings.marketTypes+'種／初期資源'+gameSettings.initialResources+'／手札上限'+gameSettings.handLimit+'／雇用上限'+gameSettings.hireLimit+'／下位レジェンド'+gameSettings.legendSlots+'。各プレイヤーの初期資源を選択してください。';renderInitialPowerSetup()}
+let initialPowerChoices=[];
+let initialPowerPlayer=0;
+function renderInitialPowerSetup(){let box=q('#initialPowerSetup');box.innerHTML='';if(initialPowerChoices.length!==playerCount){initialPowerChoices=Array.from({length:playerCount},()=>({y:0,r:0,p:0}));initialPowerPlayer=0}let p=Math.max(0,Math.min(initialPowerPlayer,playerCount-1)),row=document.createElement('div'),v=initialPowerChoices[p],total=v.y+v.r+v.p,remain=gameSettings.initialResources-total;row.className='actionblock';row.innerHTML='<div class="row"><div><strong>P'+(p+1)+'（'+CHARACTER_DATA[charOf(p)].name+'・'+CHARACTER_DATA[charOf(p)].gender+'）</strong><div class="small">P'+(p+1)+'の初期資源を選択中　残り <strong>'+remain+'</strong> 個</div></div><span class="small">'+(p+1)+' / '+playerCount+'</span></div>';let handTitle=document.createElement('div');handTitle.style.marginTop='12px';handTitle.innerHTML='<strong>現在の手札</strong><div class="small">手札を確認してから資源配分を決められます。</div>';row.appendChild(handTitle);let hg=document.createElement('div');hg.className='board-hand-grid';hg.style.marginTop='7px';if(!hands[p].length){let e=document.createElement('div');e.className='muted';e.textContent='手札はありません。';hg.appendChild(e)}else hands[p].forEach(c=>{let w=document.createElement('div');w.className='board-hand-card';w.appendChild(card(c,1,false));let ef=document.createElement('div');ef.className='small';ef.style.marginTop='4px';ef.textContent=effectText(c);w.appendChild(ef);hg.appendChild(w)});row.appendChild(hg);let picks=document.createElement('div');picks.className='turnstart-buttons';picks.style.marginTop='12px';[['y','💰 資金'],['p','🍖 食料'],['r','⚔️ 兵力']].forEach(([color,label])=>{let btn=document.createElement('button');btn.type='button';btn.className='secondary';btn.textContent=label+' '+v[color];btn.disabled=remain<=0;btn.onclick=()=>{if(v.y+v.r+v.p<gameSettings.initialResources){v[color]++;renderInitialPowerSetup()}};picks.appendChild(btn)});let reset=document.createElement('button');reset.type='button';reset.className='secondary';reset.textContent='選び直す';reset.disabled=total<=0;reset.onclick=()=>{initialPowerChoices[p]={y:0,r:0,p:0};renderInitialPowerSetup()};picks.appendChild(reset);row.appendChild(picks);let nav=document.createElement('div');nav.className='row';nav.style.marginTop='14px';let back=document.createElement('button');back.className='secondary';back.textContent='前のプレイヤー';back.disabled=p===0;back.onclick=()=>{initialPowerPlayer--;renderInitialPowerSetup()};let next=document.createElement('button');next.className='primary';next.textContent=p===playerCount-1?'初期資源を確定してゲーム開始':'P'+(p+2)+'へ';next.disabled=total!==gameSettings.initialResources;next.onclick=()=>{if(total!==gameSettings.initialResources)return;if(p===playerCount-1)confirmInitialPowers();else{initialPowerPlayer++;renderInitialPowerSetup()}};nav.append(back,next);row.appendChild(nav);box.appendChild(row)}
+function resolveGameStartCharacterEffects(){
+ // 現在の領主固有能力はゲーム開始時に直接処理しない。
+ // 《神算鬼謀》の初回ボーナスは、その能力を持つ領主／キャストごとに最初のターン開始時に独立して処理する。
+}
+function chooseFirstPlayer(){return (debugLocalMode||(onlineDebugMode&&!botMatchMode))?0:Math.floor(Math.random()*playerCount)}
+function confirmInitialPowers(){if(!initialPowerChoices.every(v=>v.y+v.r+v.p===gameSettings.initialResources))return alert('全プレイヤーの初期資源を選んでください。');for(let p=0;p<playerCount;p++)powers[p]={...initialPowerChoices[p]};resolveGameStartCharacterEffects();saveDebugInitialMarketSnapshot();refillTo8();q('#gamestartsetup').classList.add('hidden');q('#game').classList.remove('hidden');q('#status').textContent='ゲーム開始時処理完了。勝利条件 '+gameSettings.winVP+'VP。オープンマーケットを公開しました。';turn=chooseFirstPlayer();beginTurn()}
+function playerScaledGain(){return playerCount===2?3:playerCount===3?2:1}
+function resolveReactiveRolls(){
+ triggerNotices=[];
+ const defs=[
+  {special:'laws',face:1,color:'y',name:'ナロパカルタ',resource:'資金'},
+  {special:'famine',face:3,color:'p',name:'飢饉',resource:'食料'},
+  {special:'swordhunt',face:6,color:'r',name:'徴兵令',resource:'兵力'}
+ ];
+ defs.forEach(def=>{
+  let hits=dice.filter(d=>d.value===def.face).length;if(!hits)return;
+  for(let owner=0;owner<playerCount;owner++){
+   if(owner===turn)continue;
+   let n=installed[owner].filter(c=>c.special===def.special).length;if(!n)continue;
+   let debtWanted=hits*n,actual=acquireDebt(turn,debtWanted);
+   let gain=playerScaledGain()*hits*n;gainResource(owner,def.color,gain,'effect');
+   triggerNotices.push(def.name+'発動：P'+(turn+1)+'が'+def.face+'の目を'+hits+'個出したため、P'+(turn+1)+'は負債を'+actual+'枚獲得。P'+(owner+1)+'は'+def.resource+'を'+gain+'個獲得。');
+  }
+ });
+}
+function triggerLandGrab(installer){
+ for(let owner=0;owner<playerCount;owner++){
+  if(owner===installer)continue;
+  let n=installed[owner].filter(c=>c.special==='landgrab').length;if(!n)continue;
+  let gain=playerScaledGain()*n;gainResource(owner,'y',gain,'effect');
+  triggerNotices.push('納税発動：P'+(installer+1)+'がカードを設置したため、P'+(owner+1)+'は資金を'+gain+'個獲得。');
+ }
+}
+// 全設置経路（通常・無から設置・無料設置・効果設置）で共通の設置時効果を実行する。
+function registerInstallation(owner,c){temporary[owner].push(c);triggerLandGrab(owner);resolveOnInstall(c,owner)}
+function characterEffectSources(p){let a=[],lord=CHARACTER_DATA[charOf(p)];if(lord)a.push(lord);(employees[p]||[]).forEach(e=>{if(e)a.push(effectiveEmployeeAbility(e,p))});return a}
+function stackedNumericEffect(p,key){let total=0,groups=new Map();characterEffectSources(p).forEach(x=>{let v=+x[key]||0;if(!v)return;if(x.effectStackGroup)groups.set(x.effectStackGroup,Math.max(groups.get(x.effectStackGroup)||0,v));else total+=v});groups.forEach(v=>total+=v);return total}
+function groupedCharacterVP(p){let total=isMineGoldLord(p)?10:0,groups=new Map();characterEffectSources(p).forEach(x=>{let v=+x.vp||0;if(x.id==='CUR8'&&x.uniqueAbility==='無限の黄金')v=5;if(!v)return;if(x.vpStackGroup)groups.set(x.vpStackGroup,Math.max(groups.get(x.vpStackGroup)||0,v));else total+=v});groups.forEach(v=>total+=v);return total}
+let turnStartPostPending=false, depressionStartSuppressed=false;
+function beginTurn(){
+ turnClockBeginTurn();
+ if(realOnlineMainMode&&turnClockNet?.completing){turnClockStartPending=true;turnClockChoice=null;turnStartPostPending=false;return}
+ turnClockStartPending=false;
+ turnStartPostPending=false;
+ if(nightEscapeResetNext[turn]){
+  nightEscapeResetNext[turn]=false;lordFirstBreadUsed[turn]=false;lordOverclockUsed[turn]=false;
+  (employees[turn]||[]).forEach(e=>{e._firstBreadUsed=false;e._overclockUsed=false});
+  triggerNotices.push('《夜逃げ》：領主と雇用キャラクターのゲーム中1回の効果を再発動します。');
+ }
+ nightEscapePostAvailable=false;
+ playLogChanges('previous_turn');playLogEvent('turn_start',{player:turn+1},true);legendTakenThisTurn=false;stdAbilityUsed={};copiedAbility=null;copiedOracleUsed=false;copiedTributeUsed=false;
+ allFieldCards(turn).forEach(c=>{if(c._eraAcquiredThisTurn)c._eraAcquiredThisTurn=false});
+ if(gameEnded)return;
+ hiredThisTurn=false;organizationUsed=[];nextHireMinRarity=null;nextHireExtra=0;fusionUsedThisTurn=false;lordOracleUsed[turn]=false;lordTributeUsed[turn]=false;graveyardUsed[turn]={};publicMarketUsed[turn]={};clearMarketUndo();
+ if(runTurnStartSpecialAcquirePhase('pre'))return;
+ if(resolveAbilityCopyLegend(()=>continueBeginTurn()))return;
+ continueBeginTurn();
+}
+function continueBeginTurn(){
+ const suppressDepressionStart=depressionDebtLocked(turn)&&allFieldCards(turn).some(c=>specialEffectId(c)==='greatDepression'&&c._eraAcquiredThisTurn);
+ const depressionResourceBaseline=suppressDepressionStart?{...powers[turn]}:null;
+ depressionStartSuppressed=suppressDepressionStart;
+ if(depressionDebtLocked(turn)&&!suppressDepressionStart){gainResource(turn,'p',5,'depressionBonus');gainResource(turn,'r',5,'depressionBonus');}
+ let lord=CHARACTER_DATA[charOf(turn)]||{},staff=employees[turn]||[],randomBonus=staff.reduce((n,x)=>n+(x.noCommonDie?0:((x.rarity==='SSR'||x.rarity==='UR')?0:1))+(employeeUniqueAbilitiesEnabled(turn)?(x.extraRandomDice||0):0),0)+stackedNumericEffect(turn,'extraDice')+(copiedAbility==='神の贈り物'||copiedAbility==='神の恩恵'?1:0);
+ pendingSSRBonus=staff.reduce((n,x)=>n+(x.noCommonDie?0:((x.rarity==='SSR'||x.rarity==='UR')?1:0))+(employeeUniqueAbilitiesEnabled(turn)?(x.extraChosenDice||0):0),0);
+ pendingCastResourceChoices=[];
+ // パック1金融系雇用：所有者のターン開始時に個体ごと発動。負債禁止はacquireDebtが判定。
+ staff.forEach(e=>{if(!employeeUniqueAbilitiesEnabled(turn)||!e.financeIncome)return;let f=e.financeIncome;
+  if(f.self)gainResource(turn,'y',f.self,'effect');
+  for(let p=0;p<playerCount;p++){if(p===turn)continue;if(f.others)gainResource(p,'y',f.others,'effect');if(f.debt)acquireDebt(p,f.debt)}
+  triggerNotices.push('《'+e.name+'》：ターン開始時の金融効果を発動しました。');
+ });
+ if(hasActiveRule('RC4'))pendingOverclockChoices.push({name:'超好景気',remaining:2,label:'RC4《超好景気》',total:2});
+ staff.forEach(e=>{e.oracleUsedTurn=false;e.tributeUsedTurn=false;if(!employeeUniqueAbilitiesEnabled(turn))return;if(e.deadMansTrigger){let n=1;for(let j=0;j<n;j++){let c=drawOne();if(c)hands[turn].push(c)}}if(e.flexibleResourceTotal)pendingOverclockChoices.push({name:e.name,remaining:e.flexibleResourceTotal,label:e.name,total:e.flexibleResourceTotal});else if(e.chooseResource)pendingCastResourceChoices.push({name:e.name,amount:e.amount||0});else if(e.resource&&e.amount)gainResource(turn,e.resource,e.amount,'effect')});
+ dice=Array.from({length:3+randomBonus},(_,i)=>({id:i+1,value:1+Math.floor(Math.random()*6),used:false,source:i<3?'base':(i<3+(lord.extraDice||0)?'lord':'employee')}));
+ elekiterUsed[turn]=false;q('#limit').classList.add('hidden');
+ resolveReactiveRolls();
+ pendingLordResource=1+(lord.extraLordResource||0)+(copiedAbility==='神の贈り物'?1:0);
+ runRuleHook('turnStart',{player:turn});resolveTurnStartEffects();runInstalledPackHooks('turnStart',turn);
+ let deadLord=CHARACTER_DATA[charOf(turn)]?.deadMansTrigger?1:0; if(deadLord){let c=drawOne();if(c)hands[turn].push(c)}
+ let hasGuild=installed[turn].some(c=>c.special==='naroppaGuild'); if(hasGuild){}
+ if(suppressDepressionStart){
+  // 獲得ターンだけ、通常・追加・選択式の全ダイスと開始時資源獲得を抑止する。
+  dice=[];pendingSSRBonus=0;pendingLordResource=0;pendingNanban=0;pendingTenkuCat=0;pendingCastResourceChoices=[];pendingOverclockChoices=[];
+  for(const k of ['y','p','r'])powers[turn][k]=Math.min(powers[turn][k],depressionResourceBaseline[k]);
+  triggerNotices.push('《世界恐慌》：獲得したターンの開始時資源獲得と全サイコロ獲得を無効化しました。');
+ }
+ depressionStartSuppressed=false;
+ turnStartPostPending=true;nightEscapePostAvailable=false;renderGame()
+}
+function gainNanban(color){if(pendingNanban<=0||!eraGainAllowed(turn,color,'effect'))return;gainResource(turn,color,2,'effect');pendingNanban--;renderGame()}
+function gainTenkuCat(color){if(pendingTenkuCat<=0||!eraGainAllowed(turn,color,'effect'))return;gainResource(turn,color,1,'effect');pendingTenkuCat--;renderGame()}
+function offerFreeResourceWipeLegend(){
+ if((onlineDebugMode||realOnlineMainMode)&&viewer!==turn)return false;
+ if(legendTakenThisTurn)return false;
+ let L=legends.find(x=>x.special==='resourceWipe'&&!x.taken&&x.unlocked);if(!L)return false;
+ let lower=legends.find(x=>x.tier==='lower'&&x.col===L.col);
+ if(lower&&!lower.taken)return false;
+ if(!turnClockConfirm('《'+L.name+'》\n真下に下位レジェンドがありません。コストなしで設置しますか？\n設置すると全員の資源を捨て、このターンを終了します。'))return false;
+ L.taken=true;legendTakenThisTurn=true;
+ registerInstallation(turn,{key:L.id,name:L.name,type:'LEGEND',special:L.special,vp:L.vp,effectText:L.effectText});
+ for(let p=0;p<playerCount;p++)powers[p]={y:0,r:0,p:0};
+ triggerNotices.push('《神々の黄昏》：全プレイヤーの全資源を捨てました。');renderGame();completeEnd();return true
+}
+function hasGodBlessingForTurn(){return copiedAbility==='神の恩恵'||characterEffectSources(turn).some(x=>x?.uniqueAbility==='神の恩恵')}
+function renderPackCharacterConversionActions(){
+ let nd=q('#normalconvertchoices'),amount=1+stackedNumericEffect(turn,'dieResourceBonus')+(copiedAbility==='神の恩恵'?1:0);if(!nd||!hasGodBlessingForTurn()||!unusedDice().length)return;
+ let sep=document.createElement('div');sep.className='small';sep.style.marginTop='8px';sep.textContent='《神の恩恵》：サイコロ1個を好きな資源'+amount+'個に交換';nd.appendChild(sep);
+ let ds=dieSelect(unusedDice());nd.appendChild(ds);
+ [['y','💰 資金'],['p','🍖 食料'],['r','⚔️ 兵力']].forEach(([c,label])=>{let b=document.createElement('button');b.className='cost-choice';b.textContent=label+' +'+amount;b.onclick=()=>{let used=useDie(ds.value);if(!used)return alert('未使用のサイコロを選んでください。');gainResource(turn,c,amount,'dieConvert');addCommandUndo({kind:'dieAnyConvert',dieId:used.id,dieValue:used.value,color:c,amount});renderGame()};nd.appendChild(b)});
+}
+function normalTurnStartCandidate(c){
+ if(!c||c.special==='mayqueen'||c.special==='abilityCopy'||c.special==='resourceWipe')return false;
+ if(c.turnStartTiming==='pre'||c.turnStartTiming==='post'||c.turnStartPhase==='pre'||c.turnStartPhase==='post')return false;
+ if(c.hooks?.turnStartPre||c.hooks?.turnStartPost)return false;
+ return c.turnStartTiming==='normal'||c.turnStartPhase==='normal'||typeof c.hooks?.turnStart==='function'||
+ ['mine','farm','barracks','commandroom','church','greatermine','greaterfarm','greaterbarracks','greatercommand','bandit','nanban','tenkucat','skyscraper'].includes(c.special);
+}
+function repeatTurnStartEffect(c,times){
+ let mineBoost=installed[turn].some(x=>x.special==='legendmine')?3:0,farmBoost=installed[turn].some(x=>x.special==='legendfarm')?3:0,barracksBoost=installed[turn].some(x=>x.special==='legendbarracks')?3:0;
+ let y0=powers[turn].y,p0=powers[turn].p,r0=powers[turn].r,h0=hands[turn].length,b0=breadHands[turn].length,drawnCards=[],drawnBread=[];
+ for(let n=0;n<times;n++){
+  if(c.special==='mine')gainResource(turn,'y',1+mineBoost,'effect');else if(c.special==='farm')gainResource(turn,'p',1+farmBoost,'effect');else if(c.special==='barracks')gainResource(turn,'r',1+barracksBoost,'effect');
+  else if(c.special==='greatermine')gainResource(turn,'y',3,'effect');else if(c.special==='greaterfarm')gainResource(turn,'p',3,'effect');else if(c.special==='greaterbarracks')gainResource(turn,'r',3,'effect');
+  else if(c.special==='commandroom'){let b=drawBread(turn);if(b)drawnBread.push(breadLabel(b))}else if(c.special==='greatercommand'){for(let j=0;j<2;j++){let b=drawBread(turn);if(b)drawnBread.push(breadLabel(b))}}
+  else if(c.special==='church'){let x=drawOne();if(x){hands[turn].push(x);drawnCards.push(x.name)}}
+  else if(c.special==='skyscraper')gainResource(turn,'y',5,'effect');
+  else if(c.special==='nanban')pendingNanban++;
+  else if(c.special==='tenkucat')pendingTenkuCat++;
+  else if(typeof c.hooks?.turnStart==='function')runPackCardHook(c,'turnStart',{owner:turn});
+  else if(c.special==='bandit'){let rich=0;for(let p=0;p<playerCount;p++)if(p!==turn&&(powers[p].y+powers[p].r+powers[p].p)>=5)rich++;gainResource(turn,'y',rich*playerScaledGain(),'effect')}
+ }
+ let parts=[];if(powers[turn].y-y0)parts.push('資金+'+(powers[turn].y-y0));if(powers[turn].p-p0)parts.push('食料+'+(powers[turn].p-p0));if(powers[turn].r-r0)parts.push('兵力+'+(powers[turn].r-r0));if(drawnBread.length)parts.push('命令書「'+drawnBread.join('」「')+'」を獲得');if(drawnCards.length)parts.push('「'+drawnCards.join('」「')+'」をドロー');if(!parts.length)parts.push('追加効果の結果なし');return parts.join('、');
+}
+function resolveMayQueen(qn=0,repeat=0){
+ let queens=installed[turn].filter(c=>c.special==='mayqueen').length;
+ if(qn>=queens)return;
+ if(repeat>=2){resolveMayQueen(qn+1,0);return}
+ let opts=installed[turn].filter(normalTurnStartCandidate).map(c=>({c,label:c.name}));
+ if(!opts.length){triggerNotices.push('ユグドラシル：通常ターン開始時効果の対象がありません。');renderGame();return}
+ if((onlineDebugMode||realOnlineMainMode)&&viewer!==turn)return;
+ turnClockChoice={kind:'yggdrasil',qn,repeat};
+ chooseLegendCard('ユグドラシル','通常のターン開始時効果を選んで発動（'+(repeat+1)+'/2）',opts,o=>{
+  if((onlineDebugMode||realOnlineMainMode)&&viewer!==turn)return;
+  let result=repeatTurnStartEffect(o.c,1);
+  triggerNotices.push('ユグドラシル：'+o.c.name+' → '+result);
+  renderGame();resolveMayQueen(qn,repeat+1);
+ },()=>resolveMayQueen(qn,repeat));
+}
+function resolveTurnStartEffects(){
+ let lord=CHARACTER_DATA[charOf(turn)]||{},lordBreadCount=(lord.turnBread||0);
+ if(lordBreadCount&&lord.firstBreadBonus&&!lordFirstBreadUsed[turn]){lordBreadCount+=lord.firstBreadBonus;lordFirstBreadUsed[turn]=true}
+ let lordBreadDraws=[];for(let i=0;i<lordBreadCount;i++){let b=drawBread(turn);if(b)lordBreadDraws.push(breadLabel(b))}
+ if(lordBreadDraws.length)triggerNotices.push(lord.uniqueAbility+'：命令書「'+lordBreadDraws.join('」「')+'」を獲得しました。');
+ let staffBreadDraws=[];(employees[turn]||[]).forEach(e=>{if(!employeeUniqueAbilitiesEnabled(turn))return;let count=e.turnBread||0;if(count&&e.firstBreadBonus&&!e._firstBreadUsed){count+=e.firstBreadBonus;e._firstBreadUsed=true}for(let i=0;i<count;i++){let b=drawBread(turn);if(b)staffBreadDraws.push(breadLabel(b))}});
+ if(staffBreadDraws.length)triggerNotices.push('キャスト《神算鬼謀》：命令書「'+staffBreadDraws.join('」「')+'」を獲得しました。');
+ // 《オーバークロック》：各所持者ごとに未発動なら一度だけ、任意配分で合計10資源。
+ if(lord.overclockResources&&!lordOverclockUsed[turn]){pendingOverclockChoices.push({name:lord.name,remaining:lord.overclockResources});lordOverclockUsed[turn]=true}
+ (employees[turn]||[]).forEach(e=>{if(employeeUniqueAbilitiesEnabled(turn)&&e.overclockResources&&!e._overclockUsed){pendingOverclockChoices.push({name:e.name,remaining:e.overclockResources});e._overclockUsed=true}});
+ // 《神の見えざる手》：所持者1人につき通常山札から1枚ドロー。
+ let invisibleCount=(lord.invisibleHand||0)+(employeeUniqueAbilitiesEnabled(turn)?(employees[turn]||[]):[]).reduce((n,e)=>n+(e.invisibleHand||0),0),invisibleDraws=[];
+ for(let i=0;i<invisibleCount;i++){let c=drawOne();if(c){hands[turn].push(c);invisibleDraws.push(c.name)}}
+ if(invisibleDraws.length)triggerNotices.push('《神の見えざる手》：山札から「'+invisibleDraws.join('」「')+'」を引きました。');
+ pendingNanban=installed[turn].filter(c=>c.special==='nanban').length;pendingTenkuCat=installed[turn].filter(c=>c.special==='tenkucat').length;
+ let mine=installed[turn].filter(c=>c.special==='mine').length,farm=installed[turn].filter(c=>c.special==='farm').length,barracks=installed[turn].filter(c=>c.special==='barracks').length,commandroom=installed[turn].filter(c=>c.special==='commandroom').length,church=installed[turn].filter(c=>c.special==='church').length;
+ let greaterMine=installed[turn].filter(c=>c.special==='greatermine').length,greaterFarm=installed[turn].filter(c=>c.special==='greaterfarm').length,greaterBarracks=installed[turn].filter(c=>c.special==='greaterbarracks').length,greaterCommand=installed[turn].filter(c=>c.special==='greatercommand').length;
+
+ let mineBoost=installed[turn].some(c=>c.special==='legendmine')?3:0,farmBoost=installed[turn].some(c=>c.special==='legendfarm')?3:0,barracksBoost=installed[turn].some(c=>c.special==='legendbarracks')?3:0;
+ if(mine)powers[turn].y+=mine*(1+mineBoost);if(farm)powers[turn].p+=farm*(1+farmBoost);if(barracks)powers[turn].r+=barracks*(1+barracksBoost);
+ if(greaterMine)powers[turn].y+=greaterMine*3;if(greaterFarm)powers[turn].p+=greaterFarm*3;if(greaterBarracks)powers[turn].r+=greaterBarracks*3;
+ let commandDraws=[];for(let i=0;i<commandroom;i++){let b=drawBread(turn);if(b)commandDraws.push(breadLabel(b))}
+ let greaterCommandDraws=[];for(let i=0;i<greaterCommand*2;i++){let b=drawBread(turn);if(b)greaterCommandDraws.push(breadLabel(b))}
+ let churchDraws=[];for(let i=0;i<church;i++){let c=drawOne();if(c){hands[turn].push(c);churchDraws.push(c.name)}}
+ if(mine||farm||barracks)triggerNotices.push('スタンダードのターン開始時効果：'+(mine?'資金+'+(mine*(1+mineBoost))+' ':'')+(farm?'食料+'+(farm*(1+farmBoost))+' ':'')+(barracks?'兵力+'+(barracks*(1+barracksBoost))+' ':''));
+ if(commandDraws.length)triggerNotices.push('司令室：命令書「'+commandDraws.join('」「')+'」を獲得しました。');
+ if(greaterMine||greaterFarm||greaterBarracks)triggerNotices.push('上位施設のターン開始時効果：'+(greaterMine?'資金+'+(greaterMine*3)+' ':'')+(greaterFarm?'食料+'+(greaterFarm*3)+' ':'')+(greaterBarracks?'兵力+'+(greaterBarracks*3)+' ':''));
+ if(greaterCommandDraws.length)triggerNotices.push('大司令部：命令書「'+greaterCommandDraws.join('」「')+'」を獲得しました。');
+ if(churchDraws.length)triggerNotices.push('教会：山札から「'+churchDraws.join('」「')+'」を引きました。');
+ let bandits=installed[turn].filter(c=>c.special==='bandit').length;if(bandits){let rich=0;for(let p=0;p<playerCount;p++)if(p!==turn&&(powers[p].y+powers[p].r+powers[p].p)>=5)rich++;let gain=rich*playerScaledGain()*bandits;if(gain){powers[turn].y+=gain;triggerNotices.push('義賊：資源合計5個以上の他プレイヤー'+rich+'人を参照し、資金'+gain+'個を獲得。')}}
+ // ユグドラシルはpostで処理するため、ここでは発動しない。
+}
+function fieldUniqueAbilities(){
+ let set=new Set();for(let p=0;p<playerCount;p++){
+  let sources=[CHARACTER_DATA[charOf(p)],...(employees[p]||[])];
+  sources.forEach(x=>{let a=x?.uniqueAbility,def=UNIQUE_ABILITY_DEFS[a];if(!a||!def||def.copyable===false||x.copyable===false||x.uncopyable)return;set.add(a)})
+ }
+ return [...set]
+}
+function abilityProfile(name){if(!name)return null;let def=UNIQUE_ABILITY_DEFS[name];if(def)return applyUniqueAbilityDef({uniqueAbility:name});for(const x of Object.values(CHARACTER_DATA))if(x?.uniqueAbility===name)return x;for(const x of Object.values(CAST_TYPES))if(x?.uniqueAbility===name)return x;return null}
+function recreationRangeForTurn(){let vals=[];let lord=CHARACTER_DATA[charOf(turn)];if(lord?.recreationRange)vals.push(lord.recreationRange);(employeeUniqueAbilitiesEnabled(turn)?(employees[turn]||[]):[]).forEach(e=>{if(e?.recreationRange)vals.push(e.recreationRange)});let cp=abilityProfile(copiedAbility);if(cp?.recreationRange)vals.push(cp.recreationRange);return vals.length?Math.max(...vals):0}
+function resolveAbilityCopyLegend(onDone){
+ if(!installed[turn].some(c=>c.special==='abilityCopy'))return false;
+ let opts=fieldUniqueAbilities();if(!opts.length)return false;
+ const owner=turn;turnClockChoice={kind:'copy'};
+ const m=q('#legendChoiceModal'),grid=q('#legendChoiceCards');
+ q('#legendChoiceTitle').textContent='パーフェクト・イミテーション';
+ q('#legendChoiceNote').textContent='このターン使用する固有能力を選んでください。';
+ grid.innerHTML='';
+ const sel=document.createElement('select');sel.style.cssText='width:100%;padding:12px;margin:10px 0';
+ opts.forEach((name,i)=>{const o=document.createElement('option');o.value=String(i);o.textContent='《'+name+'》';sel.appendChild(o)});
+ const ok=document.createElement('button');ok.textContent='決定';ok.className='primary';
+ const choiceToken=turnClockState?.token;const allowed=()=>turnClockLeaseValid(owner,choiceToken)&&(!(onlineDebugMode||realOnlineMainMode)||viewer===owner);
+ ok.disabled=!allowed();sel.disabled=!allowed();
+ ok.onclick=()=>{
+  if(!allowed()||turn!==owner)return;
+  const chosen=opts[Number(sel.value)];if(!chosen)return;
+  m.classList.add('hidden');turnClockChoice=null;copiedAbility=chosen;
+  if(copiedAbility==='神算鬼謀'){let b=drawBread(turn);if(b)triggerNotices.push('《パーフェクト・イミテーション》：命令書「'+breadLabel(b)+'」を1枚獲得しました。')}
+  if(copiedAbility==='神の見えざる手'||copiedAbility==='デッドマンズトリガー'){let c=drawOne();if(c)hands[turn].push(c)}
+  triggerNotices.push('《パーフェクト・イミテーション》：《'+copiedAbility+'》をコピーしました。');
+  if(onDone)onDone();
+ };
+ grid.append(sel,ok);q('#legendChoiceCancel').onclick=()=>{};
+ q('#legendChoiceCancel').style.display='none';m.classList.remove('hidden');
+ return true;
+}
+// 金融レジェンドは下位のどちらかを獲得すると上位の両方が解放される。
+// 保存状態・デバッグ操作・公開場更新後も解放状態を再計算する。
+function syncEconomyLegendUnlock(){
+ const lower=legends.filter(L=>L.tier==='lower'&&L.layoutSet==='economyPair');
+ const upper=legends.filter(L=>L.tier==='upper'&&L.layoutSet==='economyPair');
+ const ownedLowerIds=new Set(installed.flat().filter(c=>c.key==='LL8'||c.key==='LL9').map(c=>c.key));
+ if(ownedLowerIds.size){for(const L of lower){if(ownedLowerIds.has(L.id)){L.taken=true;L.eraBlocked=false}else{L.taken=true;L.eraBlocked=true}}}
+
+ if(!lower.some(L=>L.taken&&!L.eraBlocked)&&!installed.some(cards=>(cards||[]).some(c=>c.key==='LL8'||c.key==='LL9')))return;
+ for(const L of upper)if(!L.taken&&!L.eraBlocked)L.unlocked=true;
+}
+// 診断専用。対戦処理は変更せず、ターン開始時の実行履歴だけ保持する。
+let economyAcquireTrace=[];
+function traceEconomyAcquire(stage,details={}){
+ try{
+  economyAcquireTrace.push({stage,turnPlayer:turn+1,viewerPlayer:viewer+1,
+   onlineDebug:!!onlineDebugMode,realOnline:!!realOnlineMainMode,
+   money:powers[turn]?.y||0,food:powers[turn]?.p||0,military:powers[turn]?.r||0,
+   ownDebt:commandCounts[turn]||0,totalDebt:commandCounts.reduce((a,n)=>a+(n||0),0),
+   legendTakenThisTurn:!!legendTakenThisTurn,...details});
+  if(economyAcquireTrace.length>80)economyAcquireTrace.shift();
+ }catch(e){}
+}
+function runTurnStartSpecialAcquirePhase(timing){
+ traceEconomyAcquire('phase_enter',{timing});
+ if((onlineDebugMode||realOnlineMainMode)&&viewer!==turn){traceEconomyAcquire('phase_skipped_viewer',{timing});return false;}
+ // ① pre: ターン開始時効果より前に条件判定する特殊獲得。③ post: 開始時効果処理後に条件判定する特殊獲得。
+ let acquired=false;
+ if(timing==='pre'){syncEconomyLegendUnlock();runInstalledPackHooks('turnStartAcquirePre',turn);if(offerFreeResourceWipeLegend())return true;offerEraLegendAtTurnStart('pre')}
+ if(timing==='post'){syncEconomyLegendUnlock();runInstalledPackHooks('turnStartAcquirePost',turn);offerEraLegendAtTurnStart('post')}
+ traceEconomyAcquire('phase_exit',{timing});
+ return acquired
+}
+function ensureDepressionDebtSupply(){for(const L of legends.filter(x=>!x.taken&&!x.eraBlocked&&x.unlocked)){let n=specialConfig(L).onAcquire?.ensureDebtSupplyPerPlayer;if(n){let total=komePlace+commandCounts.reduce((a,v)=>a+(v||0),0),need=playerCount*n;if(total<need)komePlace+=need-total}}}
+function eraLegendCondition(L){
+ if(legendTakenThisTurn||depressionLegendLocked(turn))return false;
+ const c=specialConfig(L).condition||{},total=commandCounts.reduce((a,n)=>a+(n||0),0);
+ if(c.moneyPerTotalDebt!=null)return (powers[turn]?.y||0)>=total*c.moneyPerTotalDebt;
+ if(c.foodMilitaryBase!=null)return ((powers[turn]?.p||0)+(powers[turn]?.r||0))>=Math.max(0,c.foodMilitaryBase-(commandCounts[turn]||0)*(c.debtDiscount||0));
+ if(c.debtTotalAtLeast!=null&&total<c.debtTotalAtLeast)return false;
+ if(c.allDebtZero&&!commandCounts.every(n=>(n||0)===0))return false;
+ return Object.keys(c).length>0;
+}
+function blockOtherEraLegend(chosen){
+ if(chosen.layoutSet&&chosen.exclusiveLayoutSet){legends.forEach(L=>{if(L!==chosen&&L.layoutSet===chosen.layoutSet&&L.tier===chosen.tier&&!L.taken){L.eraBlocked=true;L.taken=true}});return}
+ let group=chosen.specialGroup||'era';legends.forEach(L=>{if(L!==chosen&&(L.specialGroup||'era')===group&&!L.taken)L.eraBlocked=true});
+}
+function resolveEraAcquire(L){
+ if(legendTakenThisTurn||depressionLegendLocked(turn)||!eraLegendCondition(L))return false;
+ let cfg=specialConfig(L),a=cfg.onAcquire||{},owner=turn;
+ if(specialEffectId(L)==='goldenAge')powers[owner].y=0;
+ if(specialEffectId(L)==='greatDepression'){powers[owner].y=0;powers[owner].p=0;powers[owner].r=0;
+  installed[owner]=installed[owner].filter(c=>c.type!=='LEGEND');temporary[owner]=temporary[owner].filter(c=>c.type!=='LEGEND');
+ }
+ L.taken=true;legendTakenThisTurn=true;blockOtherEraLegend(L);
+ let card={key:L.id,name:L.name,type:'LEGEND',specialEffect:specialEffectId(L),special:specialEffectId(L),specialConfig:L.specialConfig||L.effectConfig||null,specialGroup:L.specialGroup||'era',vp:L.vp??0,_eraAcquiredThisTurn:true,effectText:L.effectText||''};
+ registerInstallation(owner,card);
+ if(a.clearAllDebt){let returned=commandCounts.reduce((x,n)=>x+(n||0),0);commandCounts=commandCounts.map(()=>0);komePlace+=returned}
+ if(a.clearAll?.resources)for(let p=0;p<playerCount;p++)for(const k of a.clearAll.resources)powers[p][k]=0;
+ if(a.convertAll)for(let p=0;p<playerCount;p++){let gain=0;for(const k of a.convertAll.from||[]){gain+=(powers[p][k]||0)*(a.convertAll.rate||1);powers[p][k]=0}powers[p][a.convertAll.to]=(powers[p][a.convertAll.to]||0)+gain}
+ if(a.gainOwner)for(const [k,n] of Object.entries(a.gainOwner))powers[owner][k]=(powers[owner][k]||0)+n;
+ if(a.giveDebtAll)distributeLimitedAcquisition(owner,'all',a.giveDebtAll,(p,n)=>acquireDebt(p,n));
+ triggerNotices.push('《'+L.name+'》をターン開始時に獲得しました。');renderGame();return true;
+}
+function offerEraLegendAtTurnStart(timing){
+ if((onlineDebugMode||realOnlineMainMode)&&viewer!==turn){traceEconomyAcquire('offer_skipped_viewer',{timing});return false}
+ let opts=legends.filter(L=>!L.taken&&!L.eraBlocked&&L.unlocked&&specialConfig(L).phase===timing&&eraLegendCondition(L));
+ traceEconomyAcquire('offer_candidates',{timing,candidates:opts.map(L=>L.id),finance:legends.filter(L=>L.id==='LU8'||L.id==='LU9').map(L=>({id:L.id,taken:!!L.taken,blocked:!!L.eraBlocked,unlocked:!!L.unlocked,phase:specialConfig(L).phase,conditionMet:eraLegendCondition(L)}))});
+ if(!opts.length)return false;
+ for(const L of opts){
+  traceEconomyAcquire('confirm_before',{timing,id:L.id});
+  let accepted=turnClockConfirm('《'+L.name+'》の獲得条件を満たしています。\n'+(timing==='pre'?'ターン開始時の効果処理前':'ターン開始時の効果処理後')+'に獲得しますか？');
+  traceEconomyAcquire('confirm_after',{timing,id:L.id,accepted});
+  if(accepted){let result=resolveEraAcquire(L);traceEconomyAcquire('acquire_result',{timing,id:L.id,result});return result}
+ }
+ return false;
+}
+function unusedDice(){return dice.filter(d=>!d.used)} function dieSelect(list){return makeChoicePicker(list.map(d=>({id:d.id,label:'🎲'+d.value+'（#'+d.id+'）'})))} function useDie(id){let d=dice.find(x=>x.id===+id);if(!d||d.used)return null;d.used=true;return d}
+function colorFor(v){return v<=2?'y':v<=4?'p':'r'} function cname(c){return c==='y'?'資金':c==='r'?'兵力':'食料'}
+function fixedVP(c){return typeof c.vp==='number'?c.vp:0}
+function allFieldCards(p){return [...installed[p],...temporary[p]]}
+function dynamicSpecialVP(c,p){let f=specialConfig(c).vpFormula;if(!f)return null;let sum=(f.resources||[]).reduce((n,k)=>n+(powers[p]?.[k]||0),0),d=Math.max(1,+f.divisor||1),v=f.round==='floor'?Math.floor(sum/d):f.round==='round'?Math.round(sum/d):Math.ceil(sum/d);for(const x of f.penalties||[])v-=Math.max(0,(+x.target||0)-(powers[p]?.[x.resource]||0))*(+x.multiplier||1);return v+(+f.flat||0)}
+function cardVP(c,p){
+ if(c.special==='greatDepression')return dynamicSpecialVP(c,p)+Math.ceil((commandCounts[p]||0)/10);
+ if(c.special==='bigCompany')return (employees[p]||[]).length;
+ if(c.special==='naroppaFestival'){let keys=new Set(['S1','S2','S3','S4','S5','S6','S7','S8','S9','S10']);return allFieldCards(p).filter(x=>keys.has(x.key)).reduce((n,x)=>n+fixedVP(x),0)*2;}
+ if(c.special==='naroppaGuild')return Math.floor(((powers[p]?.y||0)+(powers[p]?.p||0)+(powers[p]?.r||0))/3);
+ let dyn=dynamicSpecialVP(c,p);if(dyn!==null)return dyn;
+ if(c.special==='treasureship'){
+  let base=allFieldCards(p).filter(x=>x.type==='S').reduce((a,x)=>a+cardVP(x,p),0);
+  return base*2;
+ }
+ if(c.special==='inadamashii'){
+  let pw=powers[p];return Math.floor((pw.y+pw.r+pw.p)/3);
+ }
+ let boostMap={mine:'legendmine',farm:'legendfarm',barracks:'legendbarracks'};
+ if(boostMap[c.special]&&allFieldCards(p).some(x=>x.special===boostMap[c.special]))return fixedVP(c)+2;
+ return fixedVP(c);
+}
+function totalVP(p){return allFieldCards(p).reduce((a,c)=>a+cardVP(c,p),0)+groupedCharacterVP(p)+(debugVP[p]||0)}
+function vpLabel(c,p){return specialConfig(c).vpFormula?cardVP(c,p)+'VP':(c.vp===null?'?VP':fixedVP(c)+'VP')}
+// Ver.0.3.216: 最終ターン通知は同期済みゲーム状態から毎回再構築する。
+// DOMの通知だけを更新してもオンライン参加者には転送されない。
+function renderSharedEndgameStatus(){
+ const box=q('#gameover');if(!box)return;
+ if(gameEnded){
+  const scores=Array.from({length:playerCount},(_,p)=>({p,vp:totalVP(p)+((commandCounts[p]||0)*debtFinalVPPerCard(p)),cards:allFieldCards(p).length}));
+  const bestVP=Math.max(...scores.map(x=>x.vp)),top=scores.filter(x=>x.vp===bestVP),bestCards=Math.max(...top.map(x=>x.cards)),winners=top.filter(x=>x.cards===bestCards);
+  box.className='notice endgame-final';
+  box.innerHTML='<strong>ゲーム終了</strong><div style="margin-top:6px">'+scores.map(x=>'P'+(x.p+1)+'：'+x.vp+'VP／設置カード'+x.cards+'枚／負債'+(commandCounts[x.p]||0)+'枚').join('<br>')+'</div><div style="margin-top:8px"><strong>'+winners.map(x=>'P'+(x.p+1)).join('・')+' の勝利</strong></div>'+((onlineDebugMode||realOnlineMainMode)?'<div style="margin-top:12px"><button id="onlineReturnLobby" type="button" class="primary">ロビーへ戻る</button></div>':'');
+  const rb=q('#onlineReturnLobby');if(rb)rb.onclick=confirmReturnToLobby;
+  box.appendChild(playLogDownloadButton());return;
+ }
+ if(endgameStarter!==null){
+  box.className='notice endgame-progress';
+  box.innerHTML='<strong>⚑ ゲーム終了処理中</strong><div>P'+(endgameStarter+1)+'が'+gameSettings.winVP+'VP到達｜残り最終ターン：'+endgameRemaining+'人</div>';
+  return;
+ }
+ box.className='notice hidden';box.innerHTML='';
+}
+function checkEndgameTrigger(){
+ if(gameEnded||endgameStarter!==null)return;
+ if(totalVP(turn)>=gameSettings.winVP){endgameStarter=turn;endgameRemaining=playerCount-1;triggerNotices.push('P'+(turn+1)+'が自分の手番中に'+gameSettings.winVP+'VP以上になりました。 このプレイヤー以外の全員が1手番ずつ終えた後に勝敗を判定します。最終ターン中は新たな負債を獲得できません。');renderSharedEndgameStatus();}
+}
+function effectText(c){
+ if(c?.effectText)return c.effectText;
+ if(c.special==='talentRecruit')return '雇用可能な任意の雇用キャラクターを1人雇用する。';
+ if(c.special==='scorchedEarth')return 'このカードを設置したとき、自分の場の通常カードを1枚選んで捨て札にする。\nその後、各プレイヤーの場の通常カードを1枚ずつ選んで捨て札にする。';
+ if(c.special==='greatRefresh')return 'このカードを設置したとき、全プレイヤーは通常カードと命令書をすべて捨て札にし、その合計枚数と同じ枚数の通常カードを引く。\nその後、各プレイヤーは自身が捨て札にしたカード2枚につき、資金・食料・兵力をそれぞれ1個ずつ獲得する。';
+ if(c.special==='changeOfHeart')return '上位レジェンド。設置：資金24。3VP。他のプレイヤーの雇用キャラクター1人を選び、自分のものにする。雇用枠が満杯でも4人目として保持できる。';
+ if(c.special==='resourceWipe')return '上位レジェンド。5VP。ターン開始時、他のターン開始時効果の後、真下の下位レジェンドがない場合に無条件で取得できる。取得時、全プレイヤーの全資源を捨て、このターンを終了する。';
+ if(c.special==='abilityCopy')return '上位レジェンド。設置：🎲1～6各1＋資金4＋食料4＋兵力4。10VP。ターン開始時、場に存在するキャラクターの固有能力を1つ選び、このターン使用できる。初回限定部分は発動しない。';
+ if(c.special==='amanomurakumo')return '上位レジェンド。設置：2・3・4・5のいずれか1種類の同じ出目を8個。VP-5。設置時、即座にゲームを終了する。';
+ if(c.special==='mayqueen')return '上位レジェンド。設置：🎲2×3＋資金16。8VP。ターン開始時、自分の設置済みカード1枚を選び、そのターン開始時効果を追加で2回発動する。';
+ if(c.special==='eggharp')return '上位レジェンド。設置：🎲5×3＋兵力12。0VP。設置時、手札または公開市場から好きなカードをコストを支払わず設置する。これを4回行う。';
+ if(c.special==='legendmine')return '「鉱山」のターン開始時に獲得する資金を3個増やす。\n「鉱山」1枚につきVPを2増やす。';
+ if(c.special==='legendfarm')return '「農場」のターン開始時に獲得する食料を3個増やす。\n「農場」1枚につきVPを2増やす。';
+ if(c.special==='legendbarracks')return '「兵舎」のターン開始時に獲得する兵力を3個増やす。\n「兵舎」1枚につきVPを2増やす。';
+ if(c.special==='plan')return '設置：兵力2。1ターンに1回、サイコロ1個を振り直す。';
+ if(c.special==='adjust')return '設置：兵力4。1ターンに1回、サイコロ1個の出目を±1する。';
+ if(c.special==='restrict')return '設置：兵力3。1ターンに1回、サイコロ1個の出目を1にする。';
+ if(c.special==='permit')return '設置：兵力3。1ターンに1回、サイコロ1個の出目を6にする。';
+ if(c.special==='mine')return '設置：🎲1または2＋資金2。ターン開始時、資金を1個獲得する。';
+ if(c.special==='farm')return '設置：🎲3または4＋食料2。ターン開始時、食料を1個獲得する。';
+ if(c.special==='barracks')return '設置：🎲5または6＋兵力2。ターン開始時、兵力を1個獲得する。';
+ if(c.special==='commandroom')return '設置：🎲3または4＋資金3＋兵力1。ターン開始時、命令書を1枚獲得する。';
+ if(c.special==='warehouse')return '設置：🎲1・3・5のいずれか。手札上限+2。';
+ if(c.special==='church')return '設置：🎲1または4＋資金3＋食料1。ターン開始時、通常カードを山札から1枚引く。';if(c.special==='elekiter')return '設置：🎲2＋🎲5＋資金1＋兵力1＋食料1。設置後、ターン中1回、サイコロ1個を使用済みにして資金・兵力・食料を1個ずつ獲得し、命令書を1枚獲得。使用済みにするサイコロはサイコロのみ。';if(c.special==='nanban')return '設置：任意のサイコロ2個＋資金2＋兵力2＋食料2。ターン開始時、資金・兵力・食料から1種類を選び2個獲得。';if(c.special==='cursedclock')return '設置：🎲5または🎲6＋食料3。設置時、資金・兵力・食料を3個ずつ獲得。設置時効果は仮設置した瞬間に発動。';if(c.special==='tenkucat')return '設置：🎲1＋🎲6＋資金2＋兵力1＋食料2＋正式設置済みの他のマーケットカード1枚を捨てる。ターン開始時、資金・兵力・食料から1種類を選び1個獲得。';if(c.special==='ninjaguild')return '設置：🎲1または🎲2＋資金5。条件発動：他のプレイヤーがサイコロで1の目（命令書除く）を出すたび、そのプレイヤーは負債を1枚獲得し、あなたは資金を獲得。黄の獲得数は2人プレイ3個／3人プレイ2個／4人プレイ1個。';if(c.special==='paneteria')return '設置時、公開カードをすべて捨て札にし、公開カードが上限に達するまで補充する。その後、このカードを設置したプレイヤーから順に、各プレイヤーは公開カードを1種類選び、その種類のカードをすべて手札に加える。';if(c.special==='lordmeeting')return '設置時、自分は命令書を3枚引く。その後、他のプレイヤーは順に命令書を1枚ずつ引く。';if(c.special==='blackcasino')return '設置時、山札の一番上のカードを自分の場に設置する。';if(c.special==='greatermine')return '設置する際、設置済みの「鉱山」1枚を捨て札にすることで、サイコロを消費せずに設置できる。ターン開始時、資金を3獲得する。';if(c.special==='greaterfarm')return '設置する際、設置済みの「農場」1枚を捨て札にすることで、サイコロを消費せずに設置できる。ターン開始時、食料を3獲得する。';if(c.special==='greaterbarracks')return '設置する際、設置済みの「兵舎」1枚を捨て札にすることで、サイコロを消費せずに設置できる。ターン開始時、兵力を3獲得する。';if(c.special==='greatercommand')return '設置する際、設置済みの「司令室」1枚を捨て札にすることで、サイコロを消費せずに設置できる。ターン開始時、命令書を2枚獲得する。';if(c.special==='famine')return '他のプレイヤーがサイコロで3を出すたび、そのプレイヤーは負債を1枚獲得する。食料を2人プレイなら3個、3人プレイなら2個、4人以上なら1個獲得する。';if(c.special==='swordhunt')return '他のプレイヤーがサイコロで6を出すたび、そのプレイヤーは負債を1枚獲得する。兵力を2人プレイなら3個、3人プレイなら2個、4人以上なら1個獲得する。';if(c.special==='laws')return '他のプレイヤーがサイコロで1を出すたび、そのプレイヤーは負債を1枚獲得する。資金を2人プレイなら3個、3人プレイなら2個、4人以上なら1個獲得する。';if(c.special==='graveyard')return '1ターンに1回、任意の資源を1個消費することで、捨て札から通常カードを1枚手札に加える。';if(c.special==='landgrab')return '他のプレイヤーがカードを設置するたび、資金を2人プレイなら3個、3人プレイなら2個、4人以上なら1個獲得する。';if(c.special==='bandit')return 'ターン開始時、資源を合計5個以上所持している他のプレイヤー1人につき、資金を2人プレイなら3個、3人プレイなら2個、4人以上なら1個獲得する。';if(c.special==='publicmarket')return '1ターンに1回、資金2個を消費することで、公開カードを1種類選び、そのカードをすべて手札に加える。その後、手札を1枚捨てる。効果終了時、公開カードに空きがある場合、上限まで補充する。';if(c.special==='scout')return '雇用枠に空きがある場合のみ設置できる。このカードを捨て札にすることで、雇用を1回行う。';if(c.special==='treasureship')return '設置：資金・兵力・食料のいずれか1種類のパワーを30個支払う。常時発動：このカードのVPは、あなたが設置したスタンダードカードのVP合計の2倍。';if(c.special==='inadamashii')return '設置：設置済みのマーケットカードを8枚捨て札にする。常時発動：所有しているパワー3個につき1VP（端数切り捨て・色不問）。';return '現在、このカードの効果テキストは未登録です。'}
+function handCardLikelyInstallable(c){let p=powers[turn],opts=n=>installCostOptions(n).length,any=()=>installCostOptions(null).length;if(c.installSpec?.any)return any()>=c.installSpec.any;if(c.type==='S'){let need={plan:[0,2,0,0],adjust:[0,4,0,0],restrict:[0,3,0,0],permit:[0,3,0,0],mine:[2,0,0,1],farm:[0,0,2,3],barracks:[0,2,0,5],commandroom:[3,1,0,3],warehouse:[0,0,0,1],church:[3,0,1,1]}[c.special];if(!need)return true;if(p.y<need[0]||p.r<need[1]||p.p<need[2])return false;let faces={mine:[1,2],farm:[3,4],barracks:[5,6],commandroom:[3,4],warehouse:[1,3,5],church:[1,4]}[c.special];return !faces||faces.some(v=>opts(v)>0)}if(c.special==='laws')return p.y>=5;if(c.special==='scout')return p.y>=2&&p.r>=2&&p.p>=2&&(employees[turn]||[]).length<gameSettings.hireLimit;if(c.special==='famine')return p.p>=3&&opts(3)>=3;if(c.special==='swordhunt')return p.r>=4&&opts(6)>0;if(c.special==='graveyard')return p.p>=1&&p.r>=2&&(opts(4)+opts(5)>0);if(c.special==='landgrab')return p.y>=2&&p.r>=2&&p.p>=2&&opts(2)>0&&opts(5)>0;if(c.special==='bandit')return p.y>=4&&p.p>=3&&any()>=3;if(c.special==='publicmarket')return p.y>=1&&p.r>=1&&p.p>=1&&any()>0;if(c.special==='lordmeeting')return p.y>=4&&(opts(1)+opts(6)>0);if(c.special==='blackcasino')return p.p>=5&&opts(2)>0&&opts(5)>0;if(c.special==='cursedclock')return p.p>=3&&(opts(5)+opts(6)>0);if(c.special==='ninjaguild')return p.y>=5&&(opts(1)+opts(2)>0);if(c.special==='paneteria')return any()>0;if(c.special==='elekiter')return p.y>=1&&p.r>=1&&p.p>=1&&opts(2)>0&&opts(5)>0;if(c.special==='nanban')return p.y>=2&&p.r>=2&&p.p>=2&&any()>=2;if(c.special==='tenkucat')return p.y>=2&&p.r>=1&&p.p>=2&&opts(1)>0&&opts(6)>0&&installed[turn].length>0;if(c.special==='treasureship')return Math.max(p.y,p.r,p.p)>=30;if(c.special==='inadamashii')return installed[turn].length>=8;return true}
+function addHandPreview(parent,c){let w=document.createElement('div');w.className='hand-card-wrap'+(handCardLikelyInstallable(c)?'':' unavailable');let v=card(c,1,false);let ef=document.createElement('div');ef.className='card-effect-inline';ef.replaceChildren(cardInfoSections(c));v.appendChild(ef);w.appendChild(v);let st=document.createElement('div');st.className='small';st.style.marginTop='5px';st.textContent=handCardLikelyInstallable(c)?'● 現在設置可能':'● 現在は設置不可';w.appendChild(st);parent.appendChild(w)}
+function renderKomeActions(){let box=q('#komeactions');if(!box)return;let repayMult=debtRepayMultiplier(),depression=repayMult>1;box.innerHTML='手札の負債：'+(commandCounts[turn]||0)+'枚 ／ 負債置き場：'+komePlace+'枚'+(depression?' ／ 負債返済コスト×'+repayMult:'')+'　';if(!(commandCounts[turn]||0))return;if(depressionDebtLocked(turn)){box.append(' ／ 《世界恐慌》により負債は捨てられません。');return}let ds=dieSelect(unusedDice());let b1=document.createElement('button');b1.className='secondary';b1.textContent=depression?'サイコロで1枚返す':'サイコロで最大2枚返す';b1.disabled=!unusedDice().length;b1.onclick=()=>{let d=useDie(ds.value);if(!d)return alert('未使用のサイコロを選んでください。');let n=Math.min(Math.max(1,Math.floor(2/repayMult)),commandCounts[turn]);commandCounts[turn]-=n;komePlace+=n;renderGame()};box.append(ds,b1,'　');let bs=document.createElement('select');breadHands[turn].forEach((b,i)=>{let o=document.createElement('option');o.value=i;o.textContent='📜'+breadLabel(b);bs.appendChild(o)});let b2=document.createElement('button');b2.className='secondary';b2.textContent=repayMult>1?'命令書'+repayMult+'枚で1枚返す':'命令書で1枚返す';b2.disabled=breadHands[turn].length<repayMult;b2.onclick=()=>{let need=repayMult;if(breadHands[turn].length<need)return alert('命令書が足りません。');let idx=+bs.value;if(!breadHands[turn][idx])idx=0;let picks=[idx];if(need===2)picks.push(idx===0?1:0);picks.sort((a,b)=>b-a).forEach(i=>breadDiscard.push(breadHands[turn].splice(i,1)[0]));recycleBreadIfEmpty();commandCounts[turn]--;komePlace++;renderGame()};box.append(bs,b2)}
+function hasSameOwnedUniqueAbility(e,p=turn){
+ if(!e||!e.uniqueAbility)return false;
+ let lord=CHARACTER_DATA[charOf(p)];
+ if(lord&&lord.uniqueAbility===e.uniqueAbility)return true;
+ return (employees[p]||[]).some(x=>x&&x.uniqueAbility===e.uniqueAbility);
+}
+function sameUniqueAbilityAsLord(e,p=turn){return hasSameOwnedUniqueAbility(e,p)}
+function redrawSameRarityCast(e){let pool=implementedCastPool(e.rarity).filter(x=>x.id!==e.id);if(!pool.length)pool=allImplementedCastPool(e.rarity).filter(x=>x.id!==e.id);return pool.length?{...pool[Math.floor(Math.random()*pool.length)]}:null}
+function resolveDoppelCopy(e){if(!e?.doppelganger)return e;let targets=[];for(let p=0;p<playerCount;p++)(employees[p]||[]).forEach((x,i)=>{if(x&&x.rarity===e.rarity&&!x.doppelganger)targets.push({p,i,x})});if(!targets.length){e.copiedFrom=null;return e}let msg=targets.map((t,i)=>(i+1)+'. P'+(t.p+1)+' '+castDisplayName(t.x)).join('\n');let n=Math.floor(+(turnClockPrompt('《ドッペルゲンガー》\nコピーする同レアリティの雇用キャラクターを選んでください。\n\n'+msg,'1')||0));if(!n||!targets[n-1]){e.copiedFrom=null;return e}let src=targets[n-1].x;let copied={...e,copiedFrom:src.id,uniqueAbility:src.uniqueAbility,abilityText:castEffectText(src),copySourceName:castDisplayName(src)};return applyUniqueAbilityDef(copied) }
+function finalizeHire(e,label=''){
+ e=resolveDoppelCopy(e);employees[turn].push(e);if(employeeUniqueAbilitiesEnabled(turn)&&e.hireBread){for(let i=0;i<e.hireBread;i++)drawBread(turn);}
+ let agency=allFieldCards(turn).filter(c=>c.special==='staffingAgency').length;if(agency){for(let i=0;i<agency;i++){drawBread(turn);let gain=playerCount>=4?1:playerCount===3?2:3;gainResource(turn,'y',gain,'effect');gainResource(turn,'p',gain,'effect');gainResource(turn,'r',gain,'effect')}}
+ triggerNotices.push((label||('P'+(turn+1)+'が '))+e.rarity+'「'+e.name+'」を雇用しました。ダイス増加は次の自分のターンから適用されます。');renderGame();
+}
+function hireEmployee(dieId){
+ if(!isViewingOwnTurn())return alert('相手ターン中は雇用できません。');
+ if(hiredThisTurn)return alert('雇用は1ターンに1回までです。');
+ if((employees[turn]||[]).length>=effectiveHireLimit())return alert('雇用できる部下は最大'+effectiveHireLimit()+'人です。');
+ if(!isHireFree()){
+  if(powers[turn].y<5)return alert('雇用には資金5が必要です。');
+  let d=useDie(dieId);if(!d)return alert('未使用のサイコロを1個選んでください。');
+  powers[turn].y-=5;
+ }
+ let e=gachaCast();if(nextHireMinRarity){let order=['N','R','SR','SSR','UR'],min=order.indexOf(nextHireMinRarity);let pool=packCastPool(nextHireMinRarity).concat(...order.slice(min+1).map(r=>packCastPool(r)));if(pool.length)e={...pool[Math.floor(Math.random()*pool.length)]};nextHireMinRarity=null;}if(!e)return alert('雇用できるキャストが実装されていません。');
+ // 通常は即雇用。URかつ、すでに所持しているキャラと固有能力が同名の場合だけ再抽選を選べる。
+ if(e.rarity==='UR'&&hasSameOwnedUniqueAbility(e)){
+  let nextPool=implementedCastPool('UR').filter(x=>x.id!==e.id);
+  if(!nextPool.length)nextPool=allImplementedCastPool('UR').filter(x=>x.id!==e.id);
+  if(nextPool.length&&turnClockConfirm('UR「'+castDisplayName(e)+'」の《'+e.uniqueAbility+'》は、すでに所持しているキャラと同名です。\nこのURを雇用せず、同じURから再抽選しますか？')){
+   e={...nextPool[Math.floor(Math.random()*nextPool.length)]};
+  }
+ }
+ // 効果による雇用は通常の雇用回数を消費しないため、通常雇用側で記録する。
+ hiredThisTurn=true;
+ finalizeHire(e);
+ return true;
+}
+function gainSSRDie(value){if(pendingSSRBonus<=0)return;let v=+value;if(v<1||v>6)return;let id=dice.length?Math.max(...dice.map(x=>x.id))+1:1;dice.push({id,value:v,used:false,source:'SSR'});pendingSSRBonus--;renderGame()}
+function gainCastResource(color){if(!pendingCastResourceChoices.length)return;if(!eraGainAllowed(turn,color,'effect'))return;let x=pendingCastResourceChoices.shift();gainResource(turn,color,x.amount,'effect');playLogAction('character_ability',{ability:'cast_resource',color,gained:x.amount});renderGame()}
+function gainOverclockResource(color){if(!pendingOverclockChoices.length)return;if(!eraGainAllowed(turn,color,'effect'))return;let x=pendingOverclockChoices[0];gainResource(turn,color,1,'effect');playLogAction('character_ability',{ability:'オーバークロック',color,gained:1});x.remaining--;if(x.remaining<=0)pendingOverclockChoices.shift();renderGame()}
+function castEffectText(e){
+ if(!e)return '';
+ if(e.abilityText)return e.abilityText;
+ if(e.uniqueAbility)return characterAbilityText(e)||'《'+e.uniqueAbility+'》';
+ if(e.chooseResource&&e.chooseDie)return 'ターン開始時：好きな資源を'+(e.amount||0)+'個獲得し、好きな出目のサイコロを1個獲得。';
+ if(e.chooseResource)return 'ターン開始時：好きな資源を'+(e.amount||0)+'個獲得。';
+ if(e.resource&&e.amount){let n=e.resource==='y'?'資金':e.resource==='p'?'食料':'兵力';return 'ターン開始時：'+n+'を'+e.amount+'個獲得。'}
+ if(e.chooseDie)return 'ターン開始時：好きな出目のサイコロを1個獲得。';
+ return '効果なし';
+}
+function employeeCardView(e){
+ let w=document.createElement('div');w.className='employee-card';
+ let src=resolvedContentImage(e);
+ let img=document.createElement('img');img.className='employee-card-image zoomable';img.src=src;img.alt=castDisplayName(e);
+ img.onerror=()=>{let ph=document.createElement('div');ph.className='employee-card-image-missing';ph.textContent='NO IMAGE';img.replaceWith(ph)};
+ if(src)w.appendChild(img);else{let ph=document.createElement('div');ph.className='employee-card-image-missing';ph.textContent='NO IMAGE';w.appendChild(ph)}
+ let meta=document.createElement('div');meta.className='employee-card-meta';
+ let rarity=document.createElement('div');rarity.className='employee-card-rarity';rarity.textContent=e.rarity==='CLR'?'LR':(e.rarity||'');
+ let name=document.createElement('strong');name.className='employee-card-name';name.textContent=castDisplayName(e);
+ meta.append(rarity,name);
+ if(e.uniqueAbility){let a=document.createElement('div');a.className='employee-card-ability';a.innerHTML='《'+escapeHtml(e.uniqueAbility)+'》'+abilityStackTag(e.uniqueAbility);meta.appendChild(a)}
+ let ef=document.createElement('div');ef.className='employee-card-effect';ef.textContent=castEffectText(e);meta.appendChild(ef);
+ w.appendChild(meta);return w;
+}
+const CAST_SYNTHESIS={CN1:'CR1',CN2:'CR2',CN3:'CR3',CR1:'CSR2',CR2:'CSR3',CR3:'CSR4',CSR2:'CSSR2',CSR3:'CSSR3',CSR4:'CSSR4',CSR1:'CSSR1'};
+Object.values(KOKORYO_PACKS).forEach(pack=>Object.assign(CAST_SYNTHESIS,pack.castSynthesis||{}));
+function chooseLRAbilities(base,onDone){
+ let choices=[...(base?.abilityChoices||[])];
+ let need=Math.min(2,choices.length);
+ if(!need){onDone(applyUniqueAbilityDef({...base,grantedAbilities:[]}));return}
+ let modal=q('#lrAbilitySelectModal');
+ if(!modal){
+  modal=document.createElement('div');modal.id='lrAbilitySelectModal';modal.className='imgmodal hidden';modal.style.zIndex='10030';
+  modal.innerHTML='<div style="background:#fff;color:#222;border-radius:12px;padding:16px;max-width:720px;width:94vw;max-height:88vh;overflow:auto"><strong>LR獲得：固有能力を選択</strong><div id="lrAbilitySelectNote" class="small" style="margin:8px 0"></div><div id="lrAbilitySelectList" style="display:grid;gap:8px"></div><div class="row" style="justify-content:flex-end;margin-top:14px"><button id="lrAbilitySelectCancel" type="button" class="secondary">キャンセル</button><button id="lrAbilitySelectOk" type="button" class="primary">決定</button></div></div>';
+  document.body.appendChild(modal)
+ }
+ let note=q('#lrAbilitySelectNote'),list=q('#lrAbilitySelectList'),ok=q('#lrAbilitySelectOk'),cancel=q('#lrAbilitySelectCancel');
+ note.textContent='《クレシェンティア・ギフテッド》で獲得する固有能力を'+need+'つ選んでください。';
+ list.innerHTML='';
+ let selected=new Set();
+ choices.forEach(name=>{
+  let row=document.createElement('label');row.style.cssText='display:flex;gap:8px;align-items:flex-start;border:1px solid #ccc;border-radius:10px;padding:10px;cursor:pointer';
+  let cb=document.createElement('input');cb.type='checkbox';cb.value=name;
+  let txt=document.createElement('div');txt.innerHTML='<strong>《'+escapeHtml(name)+'》</strong><div class="small" style="margin-top:3px">'+escapeHtml(uniqueAbilityText(name)||'効果説明なし')+'</div>';
+  cb.onchange=()=>{if(cb.checked){if(selected.size>=need){cb.checked=false;return}selected.add(name)}else selected.delete(name);ok.disabled=selected.size!==need};
+  row.append(cb,txt);list.appendChild(row)
+ });
+ ok.disabled=true;
+ let close=()=>{modal.classList.add('hidden');ok.onclick=null;cancel.onclick=null};
+ cancel.onclick=close;
+ ok.onclick=()=>{if(selected.size!==need)return;let made=applyUniqueAbilityDef({...base,grantedAbilities:[...selected]});close();onDone(made)};
+ modal.classList.remove('hidden')
+}
+function growthPromotionActive(){return hasActiveRule('RC5')}
+function normalFusionMaterialCount(){return growthPromotionActive()?1:2}
+function synthesisOptions(p=turn){
+ if(fusionUsedThisTurn)return [];
+ let staff=employees[p]||[],counts={};staff.forEach(e=>counts[e.id]=(counts[e.id]||0)+1);
+ let need=normalFusionMaterialCount();
+ let out=Object.entries(CAST_SYNTHESIS)
+  .filter(([from])=>(counts[from]||0)>=need)
+  .map(([from,to])=>({from,to,a:CAST_TYPES[from],b:CAST_TYPES[to],materialCount:need,growthPromotion:need===1}));
+ // モノマネ師を使う2素材融合は通常ルール時のみ候補に出す。
+ if(!growthPromotionActive()){
+  [['CN6','N'],['CR6','R'],['CSR8','SR']].forEach(([m,r])=>{staff.forEach((e,i)=>{if(e.rarity===r&&e.id!==m&&(counts[m]||0)>0&&CAST_SYNTHESIS[e.id])out.push({from:e.id,to:CAST_SYNTHESIS[e.id],a:e,b:CAST_TYPES[CAST_SYNTHESIS[e.id]],mimic:m,materialCount:2})})});
+  if((counts.CSR8||0)&&(counts.CSR9||0))out.push({from:'CSR9',to:'CSSR8',a:CAST_TYPES.CSR9,b:CAST_TYPES.CSSR8,mimic:'CSR8',materialCount:2});
+ }
+ // LR融合は《成長促進》の対象外。必要素材は従来どおり。
+ clrFusionOptions(p).forEach(({rule})=>{let a=CAST_TYPES[rule.materials[0]],m=CAST_TYPES[rule.materials[1]],b=CAST_TYPES[rule.result];if(a&&m&&b)out.push({clrFusion:true,materials:[...rule.materials],to:rule.result,a,m,b,materialCount:rule.materials.length})});
+ return out
+}
+function synthesizeCast(opt){
+ if(!isViewingOwnTurn())return alert('相手ターン中は雇用融合できません。');
+ if(fusionUsedThisTurn)return alert('雇用融合は1ターンに1回までです。');
+ let o=typeof opt==='string'?{from:opt}:opt,staff=employees[turn]||[];
+ if(o.clrFusion){
+  let used=[];
+  for(const id of o.materials||[]){let i=staff.findIndex((e,idx)=>e.id===id&&!used.includes(idx));if(i<0)return alert('LR融合に必要な雇用キャラクターが足りません。');used.push(i)}
+  let base={...CAST_TYPES[o.to]};
+  chooseLRAbilities(base,made=>{
+   if(fusionUsedThisTurn)return alert('このターンはすでに雇用融合済みです。');
+   let check=[];
+   for(const id of o.materials||[]){let i=staff.findIndex((e,idx)=>e.id===id&&!check.includes(idx));if(i<0)return alert('LR融合に必要な雇用キャラクターが足りなくなりました。');check.push(i)}
+   check.sort((a,b)=>b-a).forEach(i=>staff.splice(i,1));
+   staff.push(made);fusionUsedThisTurn=true;
+   triggerNotices.push('LR融合：'+o.materials.map(id=>castDisplayName(CAST_TYPES[id])).join('＋')+' → '+castDisplayName(made)+'。取得能力：'+(made.grantedAbilities||[]).map(x=>'《'+x+'》').join('＋'));
+   renderGame()
+  });
+  return
+ }
+ let to=o.to||CAST_SYNTHESIS[o.from];
+ if(!to)return alert('融合先がありません。');
+ let used=[];
+ let first=staff.findIndex(e=>e.id===o.from);
+ if(first<0)return alert('融合に必要な雇用キャラクターが足りません。');
+ used.push(first);
+ if(!growthPromotionActive()){
+  let second=o.mimic
+   ? staff.findIndex((e,i)=>e.id===o.mimic&&!used.includes(i))
+   : staff.findIndex((e,i)=>e.id===o.from&&!used.includes(i));
+  if(second<0)return alert('融合に必要な雇用キャラクターが足りません。');
+  used.push(second);
+ }
+ used.sort((a,b)=>b-a).forEach(i=>staff.splice(i,1));
+ let made=applyUniqueAbilityDef({...CAST_TYPES[to]});if(made.doppelganger)made=resolveDoppelCopy(made);staff.push(made);
+ fusionUsedThisTurn=true;
+ triggerNotices.push('雇用融合：'+CAST_TYPES[o.from].name+(growthPromotionActive()?'×1（《成長促進》）':(o.mimic?'＋モノマネ師':'×2'))+' → '+CAST_TYPES[to].name+'。');
+ renderGame()
+}
+const ORACLE_UPGRADE_MAP=Object.freeze({
+ CN1:'CR1',CR1:'CSR2',CSR2:'CSSR2',
+ CN2:'CR2',CR2:'CSR3',CSR3:'CSSR3',
+ CN3:'CR3',CR3:'CSR4',CSR4:'CSSR4',
+ CSR1:'CSSR1',
+ CN4:'CR4',CR4:'CSR5',CSR5:'CSSR5',
+ CSR6:'CSSR6',
+ CN5:'CR5',CR5:'CSR7',CSR7:'CSSR7',
+ CN6:'CR6',CR6:'CSR8',CN7:'CR7',CR7:'CSR9',CSR9:'CSSR8',CSSR8:'CUR13'
+});
+function oracleUpgradeTarget(target){
+ let id=ORACLE_UPGRADE_MAP[target?.id],next=id&&CAST_TYPES[id];
+ return next?{...next}:null
+}
+function oracleCanUpgradeTarget(target){
+ if(!target)return false;
+ if(target.rarity==='SSR'&&!target.doppelganger)return false;
+ return !!oracleUpgradeTarget(target)
+}
+function oracleSource(sourceType,sourceIndex){
+ if(sourceType==='copy')return abilityProfile(copiedAbility);
+ if(sourceType==='lord')return CHARACTER_DATA[charOf(turn)]||null;
+ return employeeUniqueAbilitiesEnabled(turn)?(employees[turn]?.[sourceIndex]||null):null
+}
+function oracleSourceUsed(sourceType,sourceIndex){
+ return sourceType==='copy'?!!copiedOracleUsed:sourceType==='lord'?!!lordOracleUsed[turn]:!!employees[turn]?.[sourceIndex]?.oracleUsedTurn
+}
+function markOracleSourceUsed(sourceType,sourceIndex){
+ if(sourceType==='copy')copiedOracleUsed=true;else if(sourceType==='lord')lordOracleUsed[turn]=true;else if(employees[turn]?.[sourceIndex])employees[turn][sourceIndex].oracleUsedTurn=true
+}
+function useOracleUpgrade(sourceType,sourceIndex,targetIndex){
+ let source=oracleSource(sourceType,sourceIndex);if(!source?.oracleUpgrade)return;
+ if(hiredThisTurn)return alert('《神託》は通常の雇用の代わりに使用するため、このターンはすでに雇用済みです。');
+ if(oracleSourceUsed(sourceType,sourceIndex))return alert('この個体の《神託》はこのターン使用済みです。');
+ let target=employees[turn]?.[targetIndex];if(!target)return alert('レベルアップする雇用キャラクターを選んでください。');
+ if(!oracleCanUpgradeTarget(target))return alert('SSRはドッペルゲンガー以外、《神託》の対象にできません。');
+ let upgraded=oracleUpgradeTarget(target);if(!upgraded)return alert('このキャラクターには《神託》のレベルアップ先が設定されていません。');
+ let nr=upgraded.rarity;
+ if(powers[turn].y<5)return alert('《神託》には資金5が必要です。');
+ let d=unusedDice()[0];if(!d)return alert('《神託》には未使用のサイコロ1個が必要です。');
+ let usedDie=useDie(d.id);if(!usedDie)return alert('《神託》に使用するサイコロを消費できませんでした。');
+ powers[turn].y-=5;
+ let ne=applyUniqueAbilityDef(upgraded);if(ne.doppelganger)ne=resolveDoppelCopy(ne);
+ let before=castDisplayName(target);employees[turn][targetIndex]=ne;markOracleSourceUsed(sourceType,sourceIndex);hiredThisTurn=true;
+ triggerNotices.push('《神託》：'+before+' → '+castDisplayName(ne)+'（'+nr+'）へレベルアップしました。');renderGame()
+}
+function tributeSource(sourceType,sourceIndex){
+ if(sourceType==='copy')return abilityProfile(copiedAbility);
+ if(sourceType==='lord')return CHARACTER_DATA[charOf(turn)]||null;
+ return employeeUniqueAbilitiesEnabled(turn)?(employees[turn]?.[sourceIndex]||null):null
+}
+function tributeSourceUsed(sourceType,sourceIndex){
+ return sourceType==='copy'?!!copiedTributeUsed:sourceType==='lord'?!!lordTributeUsed[turn]:!!employees[turn]?.[sourceIndex]?.tributeUsedTurn
+}
+function markTributeSourceUsed(sourceType,sourceIndex){
+ if(sourceType==='copy')copiedTributeUsed=true;else if(sourceType==='lord')lordTributeUsed[turn]=true;else if(employees[turn]?.[sourceIndex])employees[turn][sourceIndex].tributeUsedTurn=true
+}
+function useTributeInstall(sourceType,sourceIndex,handIndex){
+ let source=tributeSource(sourceType,sourceIndex);if(!source?.tributeInstall)return;
+ if(tributeSourceUsed(sourceType,sourceIndex))return alert('この個体の《貢ぎ物》はこのターン使用済みです。');
+ let i=Number(handIndex);if(!Number.isInteger(i)||i<0||!hands[turn]?.[i])return alert('設置する通常手札を選んでください。');
+ let c=hands[turn].splice(i,1)[0];registerInstallation(turn,c);let b=drawBread(turn);markTributeSourceUsed(sourceType,sourceIndex);
+ if(b)triggerNotices.push('《貢ぎ物》：命令書「'+breadLabel(b)+'」を1枚獲得しました。');renderGame()
+}
+function appendActiveAbilityControls(parent,sourceType,sourceIndex,entity){
+ if(!entity)return;
+ if(entity.oracleUpgrade){
+  let row=document.createElement('div');row.className='row';row.style.marginTop='6px';
+  let sel=document.createElement('select');
+  (employees[turn]||[]).forEach((x,i)=>{if(!oracleCanUpgradeTarget(x))return;let nx=oracleUpgradeTarget(x);if(nx){let o=document.createElement('option');o.value=i;o.textContent=castDisplayName(x)+' → '+castDisplayName(nx)+'（'+nx.rarity+'）';sel.appendChild(o)}});
+  let b=document.createElement('button');b.type='button';b.className='secondary';b.textContent='《神託》を使用';b.disabled=hiredThisTurn||oracleSourceUsed(sourceType,sourceIndex)||!sel.options.length||!unusedDice().length||powers[turn].y<5;
+  b.onclick=()=>useOracleUpgrade(sourceType,sourceIndex,+sel.value);row.append(sel,b);parent.appendChild(row)
+ }
+ if(entity.tributeInstall){
+  let row=document.createElement('div');row.className='row';row.style.marginTop='6px';
+  let sel=document.createElement('select');
+  (hands[turn]||[]).forEach((c,i)=>{let o=document.createElement('option');o.value=i;o.textContent=c.name;sel.appendChild(o)});
+  let b=document.createElement('button');b.type='button';b.className='secondary';b.textContent='《貢ぎ物》を使用';b.disabled=tributeSourceUsed(sourceType,sourceIndex)||!sel.options.length;
+  b.onclick=()=>useTributeInstall(sourceType,sourceIndex,+sel.value);row.append(sel,b);parent.appendChild(row)
+ }
+}
+function dismissEmployee(index){
+ if(!isViewingOwnTurn())return alert('相手ターン中は解雇できません。');
+ let staff=employees[turn]||[];
+ if(staff.length<effectiveHireLimit())return alert('解雇は雇用枠が上限のときだけ使用できます。');
+ let target=staff[index];if(!target)return;
+ if(!turnClockConfirm('「'+castDisplayName(target)+'」を解雇しますか？'))return;
+ staff.splice(index,1);
+ triggerNotices.push('P'+(turn+1)+'が「'+castDisplayName(target)+'」を解雇しました。');
+ renderGame();
+}
+function renderHireActions(){let box=q('#hireactions'),list=q('#employees');if(!box||!list)return;box.innerHTML='';list.innerHTML='';let staff=employees[turn]||[];
+ let summary=document.createElement('div');summary.className='small';summary.textContent='雇用中 '+staff.length+'/'+effectiveHireLimit();list.appendChild(summary);
+ let lord=CHARACTER_DATA[charOf(turn)]||{};if(lord.oracleUpgrade||lord.tributeInstall){let la=document.createElement('div');la.className='actionblock';let st=document.createElement('strong');st.textContent='領主能力';la.appendChild(st);appendActiveAbilityControls(la,'lord',-1,lord);list.appendChild(la)}
+ if(copiedAbility==='神託'||copiedAbility==='貢ぎ物'){let ca=document.createElement('div');ca.className='actionblock';ca.appendChild(document.createTextNode('《パーフェクト・イミテーション》'));appendActiveAbilityControls(ca,'copy',-1,abilityProfile(copiedAbility));list.appendChild(ca)}
+ if(staff.length){let grid=document.createElement('div');grid.className='employee-card-grid';staff.forEach((e,i)=>{let wrap=document.createElement('div');wrap.className='employee-card-wrap';wrap.appendChild(employeeCardView(e));appendActiveAbilityControls(wrap,'employee',i,employeeUniqueAbilitiesEnabled(turn)?e:null);if(staff.length>=effectiveHireLimit()&&isViewingOwnTurn()){let fire=document.createElement('button');fire.type='button';fire.className='secondary danger';fire.textContent='このキャラを解雇';fire.style.marginTop='6px';fire.onclick=()=>dismissEmployee(i);wrap.appendChild(fire)}grid.appendChild(wrap)});list.appendChild(grid)}else{let empty=document.createElement('div');empty.className='muted';empty.textContent='雇用キャラクターなし';list.appendChild(empty)}
+ if(staff.length>=effectiveHireLimit()){box.textContent='雇用枠が上限です。雇用キャラクターの「このキャラを解雇」から1人解雇できます。';}else if(hiredThisTurn){box.textContent='このターンは雇用済みです。';}else{let b=document.createElement('button');b.className='primary hire-main-btn';b.textContent='雇用する';b.disabled=!isHireFree()&&(powers[turn].y<5||!unusedDice().length);b.onclick=openHireDiceModal;box.appendChild(b);}
+ let syn=isViewingOwnTurn()?synthesisOptions(turn):[];if(syn.length){let area=document.createElement('div');area.className='actionblock';let title=document.createElement('strong');title.textContent='雇用合成';area.appendChild(title);let row=document.createElement('div');row.className='row';row.style.marginTop='6px';let sel=document.createElement('select');syn.forEach(x=>{let o=document.createElement('option');o.value=JSON.stringify(x);o.textContent=x.clrFusion?(castDisplayName(x.a)+'＋'+castDisplayName(x.m)+' → '+castDisplayName(x.b)):(x.a.name+(x.growthPromotion?'×1（成長促進）':(x.mimic?'＋モノマネ師':'×2'))+' → '+x.b.name);sel.appendChild(o)});let b=document.createElement('button');b.type='button';b.className='secondary';b.textContent='融合する';b.onclick=()=>synthesizeCast(JSON.parse(sel.value));row.append(sel,b);area.appendChild(row);box.appendChild(area)}
+
+}
+function debugNamedHire(id){
+ let base=CAST_TYPES[id];if(!base)return alert('そのキャストは定義されていません。');
+ if(base.rarity==='UR'&&isUniqueRareAlreadyHired(base.id))return alert('UR（ユニークレア）「'+castDisplayName(base)+'」はすでに獲得されています。');
+ if((employees[turn]||[]).length>=effectiveHireLimit())return alert('雇用枠が'+effectiveHireLimit()+'人埋まっています。');
+ let e={...base};
+ if(hasSameOwnedUniqueAbility(e)){
+  let next=redrawSameRarityCast(e);
+  if(next&&turnClockConfirm(e.rarity+'「'+castDisplayName(e)+'」の《'+e.uniqueAbility+'》は、すでに所持しているキャラと同名です。\nデバッグ指名雇用でも、このキャストを雇用せず同じレアリティで再抽選しますか？'))e=next;
+ }
+ if(e.rarity==='CLR'){
+  chooseLRAbilities({...e},made=>{employees[turn].push(made);triggerNotices.push('デバッグ：LR「'+castDisplayName(made)+'」を指名雇用しました。取得能力：'+(made.grantedAbilities||[]).map(x=>'《'+x+'》').join('＋'));renderGame()});
+  return
+ }
+ employees[turn].push(e);triggerNotices.push('デバッグ：'+e.rarity+'「'+castDisplayName(e)+'」を指名雇用しました。');renderGame();
+}
+function debugGainOrder(v){
+ v=+v;let i=breadDeck.findIndex(b=>b.value===v);if(i>=0){breadHands[turn].push(breadDeck.splice(i,1)[0]);renderGame();return}
+ i=breadDiscard.findIndex(b=>b.value===v);if(i>=0){breadHands[turn].push(breadDiscard.splice(i,1)[0]);renderGame();return}
+ alert('命令書'+v+'は山札・捨て札に残っていません。');
+}
+function debugGainDebt(mode){
+ let results=[];
+ if(mode==='self'){
+  const got=acquireDebt(turn,1);
+  results=[{player:turn,requested:1,received:got}];
+ }else if(mode==='all'||mode==='others'){
+  results=distributeDebt(turn,mode,1);
+ }
+ const detail=results.filter(x=>x.received>0).map(x=>'P'+(x.player+1)+'：'+x.received+'枚').join('、');
+ triggerNotices.push('デバッグ：負債獲得 '+(detail||'獲得なし（置き場不足・獲得不可）'));
+ renderGame();
+}
+let debugCardSerial=0;
+let debugInitialMarketSnapshot=null;
+function debugCreateCard(base){
+ if(!base)return;
+ let c={...base,id:base.key+'-DBG-'+(++debugCardSerial)};
+ registerInstallation(turn,c);
+ 
+ // デバッグの「無から生成」は通常の取得処理を通らないため、取得時発動のレジェンド効果をここで直接解決する。
+ if(c.special==='talentRecruit')chooseNamedHireForLegend();
+ if(c.special==='scorchedEarth')resolveScorchedEarth(turn);
+ if(c.special==='greatRefresh')resolveGreatRefresh();
+ if(c.special==='eggharp')resolveEggHarp(turn);
+ // 上位レジェンドの取得時効果も、通常取得と同じ内容をコストなしでテストできるようにする。
+ if(c.special==='changeOfHeart'){
+  let targets=[];for(let p=0;p<playerCount;p++)if(p!==turn)(employees[p]||[]).forEach((e,i)=>targets.push({p,i,e}));
+  if(!targets.length)alert('《シークレット・サーティーン》：奪える雇用キャラクターがいません。');
+  else{let msg=targets.map((x,i)=>(i+1)+'. P'+(x.p+1)+' '+x.e.rarity+' '+castDisplayName(x.e)).join('\n');let raw=turnClockPrompt('《シークレット・サーティーン》\n奪う雇用キャラクターを選んでください。\n\n'+msg,'1');let n=Math.floor(+raw);if(n&&targets[n-1]){let x=targets[n-1],e=employees[x.p].splice(x.i,1)[0];employees[turn].push(e);triggerNotices.push('《シークレット・サーティーン》：P'+(x.p+1)+'の「'+castDisplayName(e)+'」をP'+(turn+1)+'が獲得しました。')}}
+ }
+ if(c.special==='resourceWipe'){
+  for(let p=0;p<playerCount;p++)powers[p]={y:0,r:0,p:0};
+  triggerNotices.push('《神々の黄昏》：全プレイヤーの全資源を捨てました。');
+  triggerNotices.push('デバッグ：「'+c.name+'」を無から生成して設置しました。');q('#debugCardModal')?.classList.add('hidden');renderGame();completeEnd();return
+ }
+ // 《パーフェクト・イミテーション》は設置時効果を持たず、次回以降のターン開始時に通常処理される。
+ if(c.special==='amanomurakumo'){triggerNotices.push('デバッグ：「'+c.name+'」を無から生成して設置しました。');q('#debugCardModal')?.classList.add('hidden');renderGame();finishGame();return}
+ triggerNotices.push('デバッグ：「'+c.name+'」を無から生成して設置しました。');
+ q('#debugCardModal')?.classList.add('hidden');
+ renderGame();
+}
+function showDebugCardCreator(){
+ let modal=q('#debugCardModal');
+ if(!modal){
+  modal=document.createElement('div');modal.id='debugCardModal';modal.className='imgmodal hidden';modal.style.zIndex='10020';
+  modal.innerHTML='<div style="background:#fff;color:#222;border-radius:12px;padding:14px;max-width:1050px;width:94vw;max-height:88vh;overflow:auto"><div class="row"><div><strong>デバッグ：カード生成</strong><div class="small">山札・市場から減らさず、選んだカードを現在プレイヤーの場へ直接1枚生成・設置します。</div></div><button id="closeDebugCard" class="secondary">閉じる</button></div><div id="debugCardList" class="choice-grid" style="margin-top:12px"></div></div>';
+  document.body.appendChild(modal);q('#closeDebugCard').onclick=()=>modal.classList.add('hidden');
+ }
+ let list=q('#debugCardList');list.innerHTML='';
+ let debugCards=[...STD_BASE,...NORMAL_BASE.filter(c=>c.implemented&&isPackEnabled(c.packId))];
+ LEGEND_CATALOG.filter(L=>{let n=Number(String(L.id).replace(/^(LL|LU)/,''));return n<=6 || (n<=9 && isPackEnabled('pack1')) || (n<=12 && isPackEnabled('pack2'));}).forEach(L=>debugCards.push({key:L.id,id:L.id,name:L.name,type:'LEGEND',image:resolvedContentImage(L),specialEffect:specialEffectId(L),special:specialEffectId(L)||'legend',vp:L.vp,effectText:effectText({specialEffect:specialEffectId(L),special:specialEffectId(L)})}));
+ debugCards.forEach(c=>{let b=card(c,1,true);let no=document.createElement('div');no.className='small';no.style.fontWeight='800';no.style.marginBottom='4px';no.textContent='カード番号：'+(c.key||'');b.insertBefore(no,b.firstChild);let ef=document.createElement('div');ef.className='card-effect-inline';ef.textContent=effectText(c);b.appendChild(ef);b.onclick=()=>debugCreateCard(c);list.appendChild(b)});
+ modal.classList.remove('hidden');
+}
+function showDebugDeckContents(){
+ let modal=q('#debugDeckModal');if(!modal){modal=document.createElement('div');modal.id='debugDeckModal';modal.className='imgmodal hidden';modal.style.zIndex='10021';modal.innerHTML='<div style="background:#fff;color:#222;border-radius:12px;padding:14px;max-width:760px;width:94vw;max-height:88vh;overflow:auto"><div class="row"><div><strong>デバッグ：山札の内容</strong><div class="small">現在の山札を上から順に表示します。</div></div><button id="closeDebugDeck" class="secondary">閉じる</button></div><div id="debugDeckList" style="margin-top:12px"></div></div>';document.body.appendChild(modal);q('#closeDebugDeck').onclick=()=>modal.classList.add('hidden')}
+ let list=q('#debugDeckList');list.innerHTML='';if(!deck.length)list.innerHTML='<div class="muted">山札は空です。</div>';else deck.forEach((c,i)=>{let d=document.createElement('div');d.className='notice';d.style.margin='5px 0';d.textContent=(i+1)+'：'+c.key+' '+c.name;list.appendChild(d)});modal.classList.remove('hidden');
+}
+function cloneDebugState(v){
+ try{return structuredClone(v)}catch(e){return JSON.parse(JSON.stringify(v))}
+}
+function saveDebugInitialMarketSnapshot(){
+ // 初期資源・ゲーム開始時効果の処理直後、公開場を初めて配置する直前の状態を保存する。
+ // デバッグ画面を開き直しても参照できるよう、windowにも同じスナップショットを保持する。
+ const keys=['playerCount','characters','hands','powers','installed','temporary','elekiterUsed','commandCounts','komePlace','pendingParkPlayers','pendingParkTaken','breadDeck','breadDiscard','breadHands','employees','lordFirstBreadUsed','lordOverclockUsed','pendingOverclockChoices','graveyardUsed','publicMarketUsed','market','discard','deck','turn','dice','legends','legendTakenThisTurn','endgameStarter','endgameRemaining','gameEnded','pendingLordResource','pendingNanban','pendingTenkuCat','pendingSSRBonus','pendingCastResourceChoices','hiredThisTurn','organizationUsed','fusionUsedThisTurn','nightEscapePostAvailable','nightEscapeResetNext','debugVP','copiedAbility','copiedOracleUsed','copiedTributeUsed','triggerNotices','dialogLog','initialPowerChoices','initialPowerPlayer'];
+ const snap={};
+ keys.forEach(k=>{try{const value=eval(k);if(typeof value!=='undefined')snap[k]=cloneDebugState(value)}catch(e){}});
+ snap.market=[];snap.selectedMarketKey=null;snap.marketUndoHistory=[];snap.commandUndoHistory=[];snap.dialogLog=[];
+ debugInitialMarketSnapshot=snap;
+ globalThis.__kokoryoDebugInitialMarketSnapshot=cloneDebugState(snap);
+}
+function getDebugInitialMarketSnapshot(){
+ return debugInitialMarketSnapshot||globalThis.__kokoryoDebugInitialMarketSnapshot||null;
+}
+function debugResetToInitialMarketPlacement(){
+ const snap=getDebugInitialMarketSnapshot();
+ if(!snap)return alert('まだ最初のカード配置直前の状態が保存されていません。ゲーム開始直後まで進めてから実行してください。');
+ const previousMarketKeys=market.map(c=>c.key).join('|');
+ const previousLegendKeys=legends.map(L=>L.id).join('|');
+ const keys=['playerCount','characters','hands','powers','installed','temporary','elekiterUsed','commandCounts','komePlace','pendingParkPlayers','pendingParkTaken','breadDeck','breadDiscard','breadHands','employees','lordFirstBreadUsed','lordOverclockUsed','pendingOverclockChoices','graveyardUsed','publicMarketUsed','market','discard','deck','turn','dice','legends','legendTakenThisTurn','endgameStarter','endgameRemaining','gameEnded','pendingLordResource','pendingNanban','pendingTenkuCat','pendingSSRBonus','pendingCastResourceChoices','hiredThisTurn','organizationUsed','fusionUsedThisTurn','nightEscapePostAvailable','nightEscapeResetNext','debugVP','copiedAbility','copiedOracleUsed','copiedTributeUsed','triggerNotices','dialogLog','initialPowerChoices','initialPowerPlayer'];
+ keys.forEach(k=>{if(Object.prototype.hasOwnProperty.call(snap,k))eval(k+'=cloneDebugState(snap[k])')});
+ market=[];selectedMarketKey=null;marketUndoHistory=[];commandUndoHistory=[];dialogLog=[];resetGameEndState();
+ // 保存した山札をそのまま引くと毎回同じ公開場になる。再配置時は改めてシャッフルする。
+ deck=sh(deck);
+ refillTo8();
+ // カードの種類が複数ある場合は、再配置後に同じ公開場が残らないよう再抽選する。
+ if(market.map(c=>c.key).join('|')===previousMarketKeys&&deck.length){
+  const previous=market.splice(0);deck=sh([...deck,...previous]);refillTo8();
+  if(market.map(c=>c.key).join('|')===previousMarketKeys){
+   const different=deck.findIndex(c=>!previous.some(x=>x.key===c.key));
+   if(different>=0&&market.length){let other=deck.splice(different,1)[0];deck.push(market[0]);market[0]=other;}
+  }
+ }
+ // レジェンド置場も再抽選する（セット配置条件はinitLegendsが維持する）。
+ initLegends();
+ if(legends.map(L=>L.id).join('|')===previousLegendKeys){
+  for(let i=0;i<5;i++){initLegends();if(legends.map(L=>L.id).join('|')!==previousLegendKeys)break;}
+ }
+ // デバッグ再配置では先手を再抽選せず、P1から開始する。
+ turn=0;
+ beginTurn();
+ triggerNotices.push('デバッグ：初期状態へ戻し、公開カードとレジェンドを再抽選しました。');
+ renderGame();
+ if(realOnlineMainMode)broadcastRealMainState();
+}
+function showDebugMarketReplace(){
+ let modal=q('#debugMarketReplaceModal');
+ if(!modal){
+  modal=document.createElement('div');modal.id='debugMarketReplaceModal';modal.className='imgmodal hidden';modal.style.zIndex='10022';
+  modal.innerHTML='<div style="background:#fff;color:#222;border-radius:12px;padding:14px;max-width:1050px;width:94vw;max-height:88vh;overflow:auto"><div class="row"><div><strong>デバッグ：公開カード入れ替え</strong><div class="small">①上のカードをタップして選択 → ②下に表示される入れ替え先をタップ。選択中のカードは黄色い枠で表示されます。</div></div><button id="closeDebugMarketReplace" class="secondary">閉じる</button></div><div id="debugMarketReplaceCurrent" style="margin-top:12px"></div><div id="debugMarketReplaceList" class="choice-grid" style="margin-top:12px"></div></div>';
+  document.body.appendChild(modal);q('#closeDebugMarketReplace').onclick=()=>modal.classList.add('hidden');
+ }
+ let current=q('#debugMarketReplaceCurrent'),list=q('#debugMarketReplaceList');current.innerHTML='';list.innerHTML='';
+ let selectedTarget=null;
+ let cg=document.createElement('div');cg.className='choice-grid';
+ market.forEach((c,i)=>{let b=card(c,1,true);b.classList.add('selectable-card');b.setAttribute('aria-label','公開カード '+(i+1)+'：'+c.name+' を選択');b.onclick=()=>{selectedTarget={kind:'market',index:i};[...cg.children].forEach(x=>{x.classList.remove('selected');x.setAttribute('aria-pressed','false')});b.classList.add('selected');b.setAttribute('aria-pressed','true');renderCandidates()};cg.appendChild(b)});
+ legends.forEach((L,i)=>{let b=card({...L,type:'LEGEND',image:resolvedContentImage(L)},1,true);b.classList.add('selectable-card');b.setAttribute('aria-label','レジェンド '+(i+1)+'：'+L.name+' を選択');b.onclick=()=>{selectedTarget={kind:'legend',index:i};[...cg.children].forEach(x=>{x.classList.remove('selected');x.setAttribute('aria-pressed','false')});b.classList.add('selected');b.setAttribute('aria-pressed','true');renderCandidates()};cg.appendChild(b)});
+ if(!cg.children.length)current.innerHTML='<div class="muted">公開場・レジェンド置き場にカードがありません。</div>';else current.appendChild(cg);
+ function renderCandidates(){
+   list.innerHTML='';
+   if(!selectedTarget)return;
+   let targetCard=selectedTarget.kind==='legend'?legends[selectedTarget.index]:market[selectedTarget.index];
+   let guide=document.createElement('div');guide.style.cssText='grid-column:1/-1;padding:10px;background:#fff4b8;border:1px solid #d6b84d;border-radius:8px;font-weight:700';guide.textContent='選択中：'+(targetCard?.name||'不明')+' → 下から入れ替え先のカードを選択してください';list.appendChild(guide);
+   let candidates;
+   if(selectedTarget.kind==='legend'){
+     const target=legends[selectedTarget.index];
+     candidates=LEGEND_CATALOG.filter(L=>L.tier===target.tier&&isPackEnabled(L.packId));
+   }else{
+     candidates=[...STD_BASE,...NORMAL_BASE.filter(c=>c.implemented&&isPackEnabled(c.packId))];
+   }
+   candidates.forEach(c=>{
+     let b=card(c,1,true);b.classList.add('selectable-card');let no=document.createElement('div');no.className='small';no.style.fontWeight='800';no.style.marginBottom='4px';no.textContent='カード番号：'+(c.key||c.id||'');b.insertBefore(no,b.firstChild);let ef=document.createElement('div');ef.className='card-effect-inline';ef.textContent=effectText(c);b.appendChild(ef);b.onclick=()=>{
+       if(!selectedTarget)return;
+       if(selectedTarget.kind==='market'){
+         let idx=selectedTarget.index;if(!market[idx])return;
+         market[idx]={...c,id:c.key+'-DBG-MARKET-'+(++debugCardSerial)};
+         triggerNotices.push('デバッグ：公開場のカードを「'+c.name+'」に入れ替えました。');
+       }else{
+         let idx=selectedTarget.index;if(!legends[idx])return;
+         const old=legends[idx];
+         legends[idx]={...c,col:old.col,tier:old.tier,taken:false,unlocked:old.unlocked};
+         triggerNotices.push('デバッグ：レジェンド置き場のカードを「'+c.name+'」に入れ替えました。');
+       }
+       selectedMarketKey=null;selectedTarget=null;modal.classList.add('hidden');renderGame();
+     };list.appendChild(b)
+   });
+   guide.scrollIntoView({block:'nearest',behavior:'smooth'});
+ }
+ modal.classList.remove('hidden');
+}
+function debugAdvanceToNextOwnTurn(){
+ if(playerCount<=1){beginTurn();return}
+ const startPlayer=turn;
+ // 自分の現在ターンも終了し、他プレイヤーのターンを省略してから自分に戻す。
+ // 従来は playerCount-1 回しか進めず、相手の手番に留まって特殊獲得が判定されなかった。
+ for(let i=0;i<playerCount;i++){
+  runInstalledPackHooks('turnEnd',turn);
+  runRuleHook('turnEnd',{player:turn});
+  dice=[];
+  if(temporary[turn].length){installed[turn].push(...temporary[turn]);temporary[turn]=[]}
+  refillTo8();
+  if(endgameStarter!==null&&turn!==endgameStarter){
+   endgameRemaining--;
+   if(endgameRemaining<=0){finishGame();return}
+  }
+  turn=(turn+1)%playerCount;
+ }
+ if(!gameEnded){
+  // オンラインデバッグでは視点と手番を一致させ、獲得ポップアップを表示する。
+  if(onlineDebugMode)viewer=startPlayer;
+  triggerNotices.push('デバッグ：相手ターンをスキップし、自分の次のターン開始時まで進めました。');
+  beginTurn();
+  renderGame();
+ }
+}
+function showDebugEraLegendDiagnosis(){
+ const ids=['LL8','LL9','LU8','LU9'];
+ const all=ids.map(id=>{
+  const L=legends.find(x=>x.id===id);
+  if(!L)return {id,exists:false};
+  const cfg=specialConfig(L);
+  const cond=cfg.condition||{};
+  return {id,name:L.name,exists:true,tier:L.tier,layoutSet:L.layoutSet,
+   taken:!!L.taken,eraBlocked:!!L.eraBlocked,unlocked:!!L.unlocked,
+   phase:cfg.phase||'(なし)',specialEffect:specialEffectId(L),condition:cond,
+   conditionMet:eraLegendCondition(L),
+   offeredAtPre:!L.taken&&!L.eraBlocked&&!!L.unlocked&&cfg.phase==='pre'&&eraLegendCondition(L),
+   offeredAtPost:!L.taken&&!L.eraBlocked&&!!L.unlocked&&cfg.phase==='post'&&eraLegendCondition(L)};
+ });
+ const totalDebt=commandCounts.reduce((a,n)=>a+(n||0),0);
+ const pw=powers[turn]||{};
+ const report={version:'0.3.221',trace:economyAcquireTrace.slice(),turnPlayer:turn+1,viewerPlayer:viewer+1,
+  localDebug:!!debugLocalMode,onlineDebug:!!onlineDebugMode,realOnline:!!realOnlineMainMode,
+  legendTakenThisTurn:!!legendTakenThisTurn,depressionLegendLocked:!!depressionLegendLocked(turn),
+  money:pw.y||0,food:pw.p||0,military:pw.r||0,
+  ownDebt:commandCounts[turn]||0,totalDebt,debtDeckRemaining:komePlace,
+  depressionRequiredFoodMilitary:Math.max(0,100-10*(commandCounts[turn]||0)),
+  depressionAvailableFoodMilitary:(pw.p||0)+(pw.r||0),
+  lowerInstalled:installed.map((cards,i)=>({player:i+1,cards:(cards||[]).filter(c=>c.key==='LL8'||c.key==='LL9').map(c=>c.key)})),
+  legends:all};
+ let modal=q('#debugEraDiagnosisModal');
+ if(!modal){modal=document.createElement('div');modal.id='debugEraDiagnosisModal';modal.className='imgmodal hidden';modal.style.zIndex='10030';document.body.appendChild(modal)}
+ modal.innerHTML='';
+ const pane=document.createElement('div');pane.style.cssText='background:#fff;color:#222;border-radius:12px;padding:14px;width:94vw;max-width:700px;max-height:85vh;overflow:auto';
+ const h=document.createElement('strong');h.textContent='金融レジェンド獲得診断';pane.appendChild(h);
+ const note=document.createElement('div');note.className='small';note.textContent='現在の内部状態を表示します。判定やカード状態は変更しません。';pane.appendChild(note);
+ const pre=document.createElement('pre');pre.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px';pre.textContent=JSON.stringify(report,null,2);pane.appendChild(pre);
+ const close=document.createElement('button');close.className='secondary';close.textContent='閉じる';close.onclick=()=>modal.classList.add('hidden');
+ const copy=document.createElement('button');copy.className='secondary';copy.style.marginLeft='8px';copy.textContent='診断結果をコピー';copy.onclick=()=>{const value=JSON.stringify(report,null,2);if(navigator.clipboard?.writeText){navigator.clipboard.writeText(value).then(()=>{copy.textContent='コピーしました'}).catch(()=>turnClockPrompt('診断結果をコピーしてください',value))}else turnClockPrompt('診断結果をコピーしてください',value)};
+ pane.append(close,copy);modal.appendChild(pane);modal.classList.remove('hidden');
+}
+function renderDebugActions(){
+ let box=q('#debugactions');if(!box)return;box.innerHTML='';
+ let diag=document.createElement('button');diag.className='secondary';diag.textContent='金融レジェンド獲得診断';diag.onclick=showDebugEraLegendDiagnosis;box.appendChild(diag);
+ let resetMarket=document.createElement('button');resetMarket.className='secondary';resetMarket.textContent='最初のカード配置前に戻して再配置';resetMarket.onclick=debugResetToInitialMarketPlacement;box.appendChild(resetMarket);
+ let replaceMarket=document.createElement('button');replaceMarket.className='secondary';replaceMarket.style.marginLeft='6px';replaceMarket.textContent='公開カードを入れ替える';replaceMarket.onclick=showDebugMarketReplace;box.appendChild(replaceMarket);
+ let skipOpp=document.createElement('button');skipOpp.className='secondary';skipOpp.style.marginLeft='6px';skipOpp.textContent='相手ターン終了後まで進める';skipOpp.onclick=debugAdvanceToNextOwnTurn;box.appendChild(skipOpp);
+ let create=document.createElement('button');create.className='secondary';create.textContent='カードを無から生成';create.onclick=showDebugCardCreator;box.appendChild(create);
+ let deckView=document.createElement('button');deckView.className='secondary';deckView.style.marginLeft='6px';deckView.textContent='山札の内容を確認';deckView.onclick=showDebugDeckContents;box.appendChild(deckView);
+ let roll=document.createElement('button');roll.className='secondary';roll.style.marginLeft='6px';roll.textContent='サイコロを振る';roll.onclick=beginTurn;box.appendChild(roll);
+ let hire=document.createElement('div');hire.style.margin='8px 0 5px';let hs=document.createElement('select');let debugRarityOrder={N:0,R:1,SR:2,SSR:3,UR:4,CLR:5};Object.values(CAST_TYPES).filter(e=>isPackEnabled(e.packId)).sort((a,b)=>(debugRarityOrder[a.rarity]??99)-(debugRarityOrder[b.rarity]??99)||castDisplayName(a).localeCompare(castDisplayName(b),'ja')).forEach(e=>{let o=document.createElement('option');o.value=e.id;o.textContent=(e.rarity==='CLR'?'LR':e.rarity)+' '+castDisplayName(e);hs.appendChild(o)});let hb=document.createElement('button');hb.className='secondary';hb.textContent='指名雇用';hb.disabled=(employees[turn]||[]).length>=effectiveHireLimit();hb.onclick=()=>debugNamedHire(hs.value);hire.append('人材 ',hs,' ',hb);box.appendChild(hire);
+ let order=document.createElement('div');order.style.margin='5px 0';let os=document.createElement('select');for(let v=1;v<=6;v++){let o=document.createElement('option');o.value=v;o.textContent='命令書 '+v;os.appendChild(o)}let ob=document.createElement('button');ob.className='secondary';ob.textContent='獲得';ob.onclick=()=>debugGainOrder(os.value);order.append(os,' ',ob);box.appendChild(order);
+ let debt=document.createElement('div');debt.style.margin='5px 0';let dl=document.createElement('span');dl.textContent='負債 ';debt.appendChild(dl);
+ [['自分が+1','self'],['全員が+1','all'],['自分以外が+1','others']].forEach(([label,mode],i)=>{let b=document.createElement('button');b.className='secondary';if(i)b.style.marginLeft='6px';b.textContent=label;b.onclick=()=>debugGainDebt(mode);debt.appendChild(b)});box.appendChild(debt);
+ let vp=document.createElement('button');vp.className='secondary';vp.textContent='+20VP';vp.onclick=()=>{debugVP[turn]=(debugVP[turn]||0)+20;renderGame()};
+ let tok=document.createElement('button');tok.className='secondary';tok.style.marginLeft='6px';tok.textContent='資金・食料・兵力 +10ずつ';tok.onclick=()=>{powers[turn].y+=10;powers[turn].p+=10;powers[turn].r+=10;renderGame()};box.append(vp,tok);
+}
+let dialogLog=[];
+function addDialog(message){
+ if(!message)return;
+ let safeMessage=String(message);
+ if(botMatchMode&&botIsPlayer(turn)&&/ドロー|引きました|命令書|山札から|手札に加え/.test(safeMessage))safeMessage=safeMessage.replace(/「[^」]*」(?:「[^」]*」)*/g,'（非公開）');
+ dialogLog.push({turn:turn+1,message:safeMessage});
+ let c=q('#dialogLogCount');if(c)c.textContent=dialogLog.length;
+}
+function showDialogLog(){
+ let m=q('#dialogLogModal'),e=q('#dialogLogList');e.innerHTML='';
+ if(!dialogLog.length){let x=document.createElement('div');x.className='muted';x.textContent='まだダイアログはありません。';e.appendChild(x)}
+ else dialogLog.forEach((x,i)=>{let d=document.createElement('div');d.className='notice';d.style.margin='6px 0';let h=document.createElement('strong');h.textContent=(i+1)+'. P'+x.turn+'ターン';let b=document.createElement('div');b.style.marginTop='4px';b.textContent=x.message;d.append(h,b);e.appendChild(d)});
+ m.classList.remove('hidden');
+}
+
+function characterAbilityText(lord){if(!lord)return '';return abilityTextForEntity(lord)||lord.abilityText||''}
+function renderOpponentTurnView(){
+ let box=q('#opponentTurnView'),grid=q('#game .turngrid');
+ if(!box||!grid)return false;
+ let active=(onlineDebugMode||realOnlineMainMode)&&viewer!==turn;
+ box.classList.toggle('hidden',!active);grid.style.display=active?'none':'';
+ if(!active)return false;
+ let me=viewer,opp=turn,myLord=CHARACTER_DATA[charOf(me)]||{},oppLord=CHARACTER_DATA[charOf(opp)]||{};
+ box.innerHTML='';
+ let head=document.createElement('div');head.className='row';head.innerHTML='<div><strong style="font-size:18px">P'+(opp+1)+' '+((realOnlineMainMode?realPlayerName(opp):onlineDebugPlayers[opp])||'')+' のターン</strong><div class="muted">相手の公開情報を確認中</div></div><div class="small">自分：P'+(me+1)+' '+((realOnlineMainMode?realPlayerName(me):onlineDebugPlayers[me])||'')+'</div>';if(onlineDebugMode||(realOnlineMainMode&&isRealLobbyHost())){let rb=document.createElement('button');rb.type='button';rb.className='secondary';rb.textContent='ロビーへ戻る';rb.onclick=confirmReturnToLobby;head.appendChild(rb)}if(realOnlineMainMode&&realLobbyChannel){let lb=document.createElement('button');lb.type='button';lb.className='secondary';lb.textContent='部屋から退出';lb.onclick=leaveRealOnlineLobby;head.appendChild(lb)}box.appendChild(head);
+ let waitTools=document.createElement('div');waitTools.className='actionblock';
+ let remaining=dice.filter(d=>!d.used);
+ let diceTitle=document.createElement('div');diceTitle.innerHTML='<strong>相手の未使用サイコロ：'+remaining.length+'個</strong><span class="small"> （残り行動回数ではありません）</span>';
+ let diceFaces=document.createElement('div');diceFaces.className='row';diceFaces.style.cssText='justify-content:flex-start;gap:6px;margin:8px 0';
+ remaining.forEach(d=>{let chip=document.createElement('span');chip.className='power';chip.textContent='🎲'+d.value;diceFaces.appendChild(chip)});
+ if(!remaining.length){let none=document.createElement('span');none.className='muted';none.textContent='未使用サイコロなし';diceFaces.appendChild(none)}
+ let tools=document.createElement('div');tools.className='row';tools.style.cssText='justify-content:flex-start;gap:6px;flex-wrap:wrap';
+ [['カード一覧',showCardList],['雇用カード一覧',showHireCardList],['捨て札',showDiscardPile],['ダイアログ履歴',showDialogLog],['追加ルール',showActiveRules]].forEach(([label,fn])=>{if(label==='追加ルール'&&q('#showActiveRules')?.classList.contains('hidden'))return;let btn=document.createElement('button');btn.type='button';btn.className='secondary';btn.textContent=label;btn.onclick=fn;tools.appendChild(btn)});
+ waitTools.append(diceTitle,diceFaces,tools);box.appendChild(waitTools);
+ let self=document.createElement('div');self.className='actionblock';self.innerHTML='<strong>自分の情報</strong><div class="powers" style="margin-top:7px"><span class="power">資金 <strong>'+powers[me].y+'</strong></span><span class="power">兵力 <strong>'+powers[me].r+'</strong></span><span class="power">食料 <strong>'+powers[me].p+'</strong></span><span>VP <strong>'+totalVP(me)+'</strong></span><span>命令書 <strong>'+breadHands[me].length+'</strong>枚</span><span>負債 <strong>'+(commandCounts[me]||0)+'</strong>枚</span></div>';let sh=document.createElement('div');sh.className='opponent-self-hand-grid';if(!hands[me].length){let e=document.createElement('div');e.className='muted';e.textContent='手札なし';sh.appendChild(e)}else hands[me].forEach(c=>{let w=document.createElement('div');w.className='online-info-card opponent-hand-card';let meta=document.createElement('div');meta.className='opponent-hand-meta';meta.innerHTML='<span class="small">'+(c.type==='S'?'STANDARD':c.type==='LEGEND'?'LEGEND':'NORMAL')+'</span><strong>'+escapeHtml(c.name)+'</strong>';let ef=document.createElement('div');ef.className='card-effect-inline';ef.textContent=effectText(c);w.append(meta,ef);sh.appendChild(w)});self.appendChild(sh);box.appendChild(self);
+ let op=document.createElement('div');op.className='actionblock';op.innerHTML='<strong>相手の情報</strong><div style="margin-top:6px"><strong>'+oppLord.title+' '+oppLord.name+'</strong>　'+oppLord.gender+'</div><button type="button" class="secondary opponent-ability" style="margin-top:6px">《'+(oppLord.uniqueAbility||'能力なし')+'》</button><div class="small opponent-ability-text hidden" style="margin-top:6px"></div><div class="powers" style="margin-top:8px"><span class="power">資金 <strong>'+powers[opp].y+'</strong></span><span class="power">兵力 <strong>'+powers[opp].r+'</strong></span><span class="power">食料 <strong>'+powers[opp].p+'</strong></span><span>VP <strong>'+totalVP(opp)+'</strong></span><span>手札 <strong>'+hands[opp].length+'</strong>枚</span><span>命令書 <strong>'+breadHands[opp].length+'</strong>枚</span><span>負債 <strong>'+(commandCounts[opp]||0)+'</strong>枚</span></div>';box.appendChild(op);let oppPortrait=document.createElement('div');oppPortrait.className='lord-card-portrait';oppPortrait.style.cssText='width:110px;height:140px;margin-top:8px';renderLordPortrait(oppPortrait,charOf(opp),'相手キャラクターイラスト');op.insertBefore(oppPortrait,op.children[1]||null);
+ let ab=op.querySelector('.opponent-ability'),at=op.querySelector('.opponent-ability-text');ab.onclick=()=>{at.textContent=abilityStackText(oppLord.uniqueAbility)+' '+(characterAbilityText(oppLord)||'効果なし');at.classList.toggle('hidden')};
+ let fieldSec=document.createElement('div');fieldSec.className='actionblock';let fieldTitle=document.createElement('strong');fieldTitle.textContent='相手の設置済みカード';fieldSec.appendChild(fieldTitle);appendInstalledCardGrid(fieldSec,installedDisplayList(opp));box.appendChild(fieldSec);
+ let emp=document.createElement('div');emp.className='actionblock';emp.innerHTML='<strong>相手の雇用キャラクター</strong>';let eg=document.createElement('div');eg.className='employee-card-grid';eg.style.marginTop='8px';if(!(employees[opp]||[]).length){let e=document.createElement('div');e.className='muted';e.textContent='雇用キャラクターなし';eg.appendChild(e)}else (employees[opp]||[]).forEach(c=>eg.appendChild(employeeCardView(c)));emp.appendChild(eg);box.appendChild(emp);return true;
+}
+function renderGame(){turnClockRender();playLogChanges('render');refreshActiveRulesButton();let lobbyBtn=q('#mainReturnLobby');if(lobbyBtn)lobbyBtn.classList.toggle('hidden',!(onlineDebugMode||(realOnlineMainMode&&isRealLobbyHost())));q('#cardDetailModal')?.classList.add('hidden');q('#installModal')?.classList.add('hidden');checkEndgameTrigger();renderSharedEndgameStatus();if(renderOpponentTurnView()){renderLegends();renderMarket();renderPlayers();renderParkChoice();return;}q('#turnwho').textContent='P'+(turn+1)+(realOnlineMainMode&&realPlayerName(turn)?' '+realPlayerName(turn):'')+'のターン';let charData=window.KOKORYO_CHARACTER_DATA||CHARACTER_DATA,lord=charData[charOf(turn)]||charData.P1||{};renderLordPortrait(q('#charportrait'),charData[charOf(turn)]?charOf(turn):'P1');q('#chartitle').textContent=lord.title||'';q('#charname').textContent=lord.name||'';q('#chargender').textContent=lord.gender||'';q('#charability').innerHTML='<strong>《'+(lord.uniqueAbility||'能力なし')+'》</strong>';q('#charnote').textContent='';renderTriggerNotices();let pw=powers[turn];q('#py').textContent=pw.y;q('#pr').textContent=pw.r;q('#pp').textContent=pw.p;q('#handcount').textContent=totalHandCount(turn);q('#breadhandcount').textContent=breadHands[turn].length;q('#currentvp').textContent=totalVP(turn);
+try{renderBoardHand()}catch(err){console.error('renderBoardHand failed',err)}
+try{renderHireActions()}catch(err){console.error('renderHireActions failed',err)}
+let de=q('#dice');de.innerHTML='';dice.forEach(d=>{let x=document.createElement('div');x.className='die '+(d.used?'used':'');x.innerHTML='<strong>🎲 '+d.value+'</strong><div class="small">'+(d.used?'使用済み':cname(colorFor(d.value))+'対応')+'</div>';de.appendChild(x)});
+q('#corodie').parentElement.style.display='none';let cs=q('#corodie');if(cs){cs.innerHTML='';unusedDice().forEach(d=>{let o=document.createElement('option');o.value=d.id;o.textContent='🎲'+d.value+'（#'+d.id+'）';cs.appendChild(o)})}
+renderConversionActions();renderCharacterAnyResourceConversion();renderInvisibleHandActions();renderResourceExchange();renderUndoActions();
+renderTurnStart();renderCardActions();q('#franpanel').classList.add('hidden');q('#sorapanel').classList.add('hidden');renderKomeActions();renderDebugActions();renderLegends();renderMarket();renderPlayers();renderParkChoice()}
+function renderTriggerNotices(){
+ let box=q('#triggernotices');
+ if(!triggerNotices.length){box.classList.add('hidden');box.innerHTML='';return}
+ let shown=[...triggerNotices].map(x=>{
+  if(!(botMatchMode && botIsPlayer(turn)))return x;
+  let msg=String(x);
+  // Drawn cards and command sheets are private even when an effect names them.
+  if(/ドロー|引きました|命令書|山札から|手札に加え/.test(msg)){
+    msg=msg.replace(/「[^」]*」(?:「[^」]*」)*/g,'（非公開）');
+  }
+  return msg;
+ });
+ box.classList.remove('hidden');
+ box.innerHTML='<strong>条件発動</strong><div style="margin-top:6px">'+shown.map(x=>'<div>'+x+'</div>').join('')+'</div>';
+ shown.forEach(x=>addDialog(x));triggerNotices=[];
+}
+function gainLordResource(color){if(pendingLordResource<=0||!eraGainAllowed(turn,color,'effect'))return;gainResource(turn,color,1,'effect');playLogAction('character_ability',{ability:'lord_resource',color,gained:1});pendingLordResource--;renderGame()}
+function turnStartResourceButtons(title,note,amount,handler){let row=document.createElement('div');row.className='turnstart-choice';let h=document.createElement('div');h.innerHTML='<strong>'+title+'</strong>'+(note?'<div class="small">'+note+'</div>':'');let buttons=document.createElement('div');buttons.className='turnstart-buttons';[['y','💰 資金'],['p','🍖 食料'],['r','⚔️ 兵力']].forEach(([v,label])=>{let b=document.createElement('button');b.className='secondary';b.textContent=label+(amount>1?' +'+amount:'');b.disabled=!eraGainAllowed(turn,v,'effect');b.onclick=()=>{if(eraGainAllowed(turn,v,'effect'))handler(v)};buttons.appendChild(b)});row.append(h,buttons);return row}
+function installNightEscape(){
+ if(!nightEscapePostAvailable||!isViewingOwnTurn())return;
+ if(pendingLordResource>0||pendingNanban>0||pendingTenkuCat>0||pendingSSRBonus>0||pendingCastResourceChoices.length||pendingOverclockChoices.length)return;
+ let i=hands[turn].findIndex(c=>c.key==='N22');if(i<0||(commandCounts[turn]||0)<5)return;
+ nightEscapePostAvailable=false;
+ let card=hands[turn].splice(i,1)[0];
+ let n=depressionDebtLocked(turn)?0:(commandCounts[turn]||0);if(n){commandCounts[turn]=0;komePlace+=n;}
+ powers[turn]={y:0,p:0,r:0};
+ breadDiscard.push(...breadHands[turn].splice(0));recycleBreadIfEmpty();
+ dice.forEach(d=>d.used=true);
+ nightEscapeResetNext[turn]=true;
+ registerInstallation(turn,card);
+ pendingOverclockChoices.push({name:'夜逃げ',label:'《夜逃げ》',remaining:4,total:4});
+ triggerNotices.push('《夜逃げ》：負債・資源・命令書をすべて捨てました。次のターン開始時に1回限りの効果を再発動します。');renderGame();
+}
+function renderTurnStart(){let panel=q('#turnstartpanel'),box=q('#turnstarteffects');box.innerHTML='';
+ // 資源・追加ダイスの選択がすべて済むまではポスト特殊獲得を判定しない。
+ if(turnStartPostPending&&pendingLordResource<=0&&pendingNanban<=0&&pendingTenkuCat<=0&&pendingSSRBonus<=0&&!pendingCastResourceChoices.length&&!pendingOverclockChoices.length){
+  turnStartPostPending=false;
+  panel.classList.add('hidden');
+  const acquired=runTurnStartSpecialAcquirePhase('post');
+  nightEscapePostAvailable=true;
+  if(!acquired)resolveMayQueen();
+  renderGame();
+  return;
+ }
+if(pendingLordResource<=0&&pendingNanban<=0&&pendingTenkuCat<=0&&pendingSSRBonus<=0&&!pendingCastResourceChoices.length&&!pendingOverclockChoices.length){if(!nightEscapePostAvailable){panel.classList.add('hidden');return}panel.classList.remove('hidden');let eligible=hands[turn].some(c=>c.key==='N22')&&(commandCounts[turn]||0)>=5;if(!eligible){nightEscapePostAvailable=false;panel.classList.add('hidden');return}let row=document.createElement('div');row.className='turnstart-choice';row.innerHTML='<strong>ターン開始時の資源獲得後</strong><div class="small">《夜逃げ》を設置する場合はここで選択してください。</div>';if(eligible){let b=document.createElement('button');b.className='secondary';b.textContent='《夜逃げ》をコストなしで設置';b.onclick=()=>installNightEscape();row.appendChild(b)}let skip=document.createElement('button');skip.className='secondary';skip.textContent='通常の行動へ進む';skip.onclick=()=>{nightEscapePostAvailable=false;renderGame()};row.appendChild(skip);box.appendChild(row);return}panel.classList.remove('hidden');
+ if(pendingOverclockChoices.length){let x=pendingOverclockChoices[0],label=x.label||('《オーバークロック》 '+x.name),total=x.total||10;box.appendChild(turnStartResourceButtons(label,'好きな資源を合計'+total+'個獲得します。残り'+x.remaining+'個',1,gainOverclockResource))}
+ if(pendingLordResource>0)box.appendChild(turnStartResourceButtons('領主効果','好きな資源を1つ選んでください。残り'+pendingLordResource+'個',1,gainLordResource));
+ if(pendingCastResourceChoices.length){let x=pendingCastResourceChoices[0];box.appendChild(turnStartResourceButtons(x.name,'好きな資源を1種類選んでください。残り'+pendingCastResourceChoices.length+'回',x.amount,gainCastResource))}
+ if(pendingSSRBonus>0){let row=document.createElement('div');row.className='turnstart-choice';row.innerHTML='<strong>SSR雇用効果</strong><div class="small">好きな出目のサイコロを1個獲得してください。残り'+pendingSSRBonus+'回</div>';let buttons=document.createElement('div');buttons.className='turnstart-buttons turnstart-dice-buttons';for(let v=1;v<=6;v++){let b=document.createElement('button');b.className='secondary';b.textContent='🎲'+v;b.onclick=()=>gainSSRDie(v);buttons.appendChild(b)}row.appendChild(buttons);box.appendChild(row)}
+ if(pendingNanban>0)box.appendChild(turnStartResourceButtons('南蛮煙管','獲得する資源を選んでください。残り'+pendingNanban+'回',2,gainNanban));
+ if(pendingTenkuCat>0)box.appendChild(turnStartResourceButtons('天駆猫','獲得する資源を選んでください。残り'+pendingTenkuCat+'回',1,gainTenkuCat));
+}
+
+function optionSelect(values){let seen=new Set(),opts=[];values.forEach(v=>installCostOptions(v).forEach(x=>{if(seen.has(x.id))return;seen.add(x.id);opts.push(x)}));return makeChoicePicker(opts)}
+function consumeOneOf(choice,values){if(String(choice).startsWith('free:request:')&&lordInstallDiceDiscount()>Number(String(choice).split(':')[2]))return true;for(let v of values){let [k,n]=String(choice).split(':');if(k==='d'){let d=unusedDice().find(x=>x.id===+n&&x.value===v);if(d){d.used=true;return true}}else if(k==='b'){let i=+n,b=breadHands[turn][i];if(b&&(b.value==='any'||b.value===v)){breadDiscard.push(breadHands[turn].splice(i,1)[0]);recycleBreadIfEmpty();return true}}}return false}
+function installStandard(handIndex,choice){let c=hands[turn][handIndex],p=powers[turn];if(!c||c.type!=='S')return;let need={y:0,r:0,p:0},vals=null;
+ if(c.special==='plan')need.r=2;else if(c.special==='adjust')need.r=4;else if(c.special==='restrict'||c.special==='permit')need.r=3;
+ else if(c.special==='mine'){need.y=2;vals=[1,2]}else if(c.special==='farm'){need.p=2;vals=[3,4]}else if(c.special==='barracks'){need.r=2;vals=[5,6]}
+ else if(c.special==='commandroom'){need.y=3;need.r=1;vals=[3,4]}else if(c.special==='warehouse')vals=[1,3,5];else if(c.special==='church'){need.y=3;need.p=1;vals=[1,4]}
+ if(p.y<need.y||p.r<need.r||p.p<need.p)return alert('資源が足りません。必要：'+c.costText);if(vals&&!consumeOneOf(choice,vals))return alert('必要な出目を満たすサイコロまたは命令書を選んでください。');
+ p.y-=need.y;p.r-=need.r;p.p-=need.p;let got=hands[turn].splice(handIndex,1)[0];registerInstallation(turn,got);renderGame()}
+function useStdAbility(cardId,mode,dieId,delta=0){let key=cardId;if(stdAbilityUsed[key])return;let d=dice.find(x=>x.id===+dieId&&!x.used);if(!d)return alert('未使用のサイコロを選んでください。');if(mode==='plan')d.value=1+Math.floor(Math.random()*6);if(mode==='adjust')d.value=Math.max(1,Math.min(6,d.value+delta));if(mode==='restrict')d.value=1;if(mode==='permit')d.value=6;stdAbilityUsed[key]=true;renderGame()}
+function appendInstalledCardGrid(parent,list,emptyText='設置済みカードなし'){
+ let g=document.createElement('div');g.className='board-hand-grid';
+ if(!list.length){let e=document.createElement('div');e.className='muted';e.textContent=emptyText;g.appendChild(e)}
+ else list.forEach(item=>{let c=item&&item.card?item.card:item,status=item&&item.card?(item.status||'設置'):'設置';let w=document.createElement('div');w.className='board-hand-card';let st=document.createElement('div');st.className='small';st.style.cssText='font-weight:800;margin-bottom:4px';st.textContent='状態：'+status;w.appendChild(st);w.appendChild(card(c,1,false));let ef=document.createElement('div');ef.className='small';ef.style.marginTop='4px';ef.textContent=effectText(c);w.appendChild(ef);g.appendChild(w)});
+ parent.appendChild(g);
+}
+function installedDisplayList(p){return [...(temporary[p]||[]).map(card=>({card,status:'仮設置'})),...(installed[p]||[]).map(card=>({card,status:'設置'}))]}
+function isViewingOwnTurn(){return !(onlineDebugMode||realOnlineMainMode)||viewer===turn}
+function useRecreation(){
+ let range=recreationRangeForTurn();if(!range)return;
+ if(!installed[turn].length)return alert('《リクリエイション》の対象になる設置済みカードがありません。');
+ if(!hands[turn].length)return alert('《リクリエイション》で仮設置する手札がありません。');
+ let bases=installed[turn].map((c,i)=>({c,i,targets:hands[turn].map((h,j)=>({h,j})).filter(x=>Math.abs(fixedVP(x.h)-fixedVP(c))<=range)})).filter(x=>x.targets.length&&!x.c.tier&&!String(x.c.id||'').match(/^L[LU]/));
+ if(!bases.length)return alert('VP差が±'+range+'以内になる組み合わせがありません。');
+ let host=q('#installedcards'),old=q('#recreationPicker');if(old)old.remove();
+ let box=document.createElement('div');box.id='recreationPicker';box.className='panel';box.style.marginTop='8px';
+ let title=document.createElement('div');title.className='small';title.textContent='《リクリエイション》 入れ替えるカードを選択';box.appendChild(title);
+ let baseSel=document.createElement('select');baseSel.style.width='100%';baseSel.style.marginTop='6px';
+ bases.forEach((x,n)=>{let o=document.createElement('option');o.value=n;o.textContent='設置済み：'+x.c.name+'（'+fixedVP(x.c)+'VP）';baseSel.appendChild(o)});box.appendChild(baseSel);
+ let handSel=document.createElement('select');handSel.style.width='100%';handSel.style.marginTop='6px';box.appendChild(handSel);
+ function refreshTargets(){handSel.innerHTML='';let b=bases[+baseSel.value];b.targets.forEach((x,n)=>{let o=document.createElement('option');o.value=n;o.textContent='手札：'+x.h.name+'（'+fixedVP(x.h)+'VP）';handSel.appendChild(o)})}
+ baseSel.onchange=refreshTargets;refreshTargets();
+ let exec=document.createElement('button');exec.textContent='入れ替える';exec.style.marginTop='6px';exec.onclick=()=>{let b=bases[+baseSel.value],t=b?.targets[+handSel.value];if(!b||!t)return;let oldCard=installed[turn].splice(b.i,1)[0],next=hands[turn].splice(t.j,1)[0];discard.push(oldCard);registerInstallation(turn,next);triggerNotices.push('《リクリエイション》：「'+oldCard.name+'」を捨て、「'+next.name+'」を仮設置しました。');renderGame()};box.appendChild(exec);
+ let cancel=document.createElement('button');cancel.className='secondary';cancel.textContent='キャンセル';cancel.style.margin='6px 0 0 6px';cancel.onclick=()=>box.remove();box.appendChild(cancel);
+ host.appendChild(box);
+}
+function renderCardActions(selectedHandIndex=null){
+ let ha=q('#handactions'),ic=q('#installedcards');ha.innerHTML='';ic.innerHTML='';
+ appendInstalledCardGrid(ic,installedDisplayList(turn));
+ let lordForActions=CHARACTER_DATA[charOf(turn)];
+ if(recreationRangeForTurn()>0){
+  let b=document.createElement('button');b.className='secondary';b.style.margin='7px 0';b.textContent='《リクリエイション》を使用';b.disabled=!installed[turn].length||!hands[turn].length;b.onclick=useRecreation;ic.appendChild(b);
+ }
+ let handSpecials=hands[turn].map((c,i)=>({c,i})).filter(x=>(selectedHandIndex===null||x.i===selectedHandIndex)&&(x.c.type==='S'||x.c.installSpec||['elekiter','nanban','cursedclock','tenkucat','ninjaguild','paneteria','lordmeeting','blackcasino','greatermine','greaterfarm','greaterbarracks','greatercommand','famine','swordhunt','laws','graveyard','landgrab','bandit','publicmarket','scout','treasureship','inadamashii'].includes(x.c.special)));
+ if(!handSpecials.length)ha.textContent='現在、実装済みの設置可能カードは手札にありません。';
+ handSpecials.forEach(x=>{addHandPreview(ha,x.c);if(x.c.type==='S'){let row=document.createElement('div');row.style.margin='4px';let vals={mine:[1,2],farm:[3,4],barracks:[5,6],commandroom:[3,4],warehouse:[1,3,5],church:[1,4]}[x.c.special];let sel=vals?optionSelect(vals):null;let b=document.createElement('button');b.className='secondary';b.textContent=x.c.name+'を仮設置（'+x.c.costText+'）';if(sel)b.disabled=!sel.options.length;b.onclick=()=>installStandard(x.i,sel?sel.value:null);if(sel)row.append('使用 ',sel,' ');row.appendChild(b);ha.appendChild(row);return;}if(x.c.installSpec){renderPackInstall(ha,x);return}if(x.c.special==='tenkucat'){let row=document.createElement('div');row.style.margin='4px';let s1=costSelect(1),s6=costSelect(6);let trash=document.createElement('select');installed[turn].forEach((c,i)=>{let o=document.createElement('option');o.value=i;o.textContent=c.name+(installed[turn].filter(z=>z.name===c.name).length>1?' #'+(i+1):'');trash.appendChild(o)});let b=document.createElement('button');b.className='secondary';b.textContent='天駆猫を仮設置（資金2兵力1食料2＋設置済み1枚破棄）';b.disabled=!s1.options.length||!s6.options.length||installed[turn].length<1;b.onclick=()=>installTenkuCat(x.i,s1.value,s6.value,trash.value);row.append('🎲1 ',s1,' 🎲6 ',s6,' 捨てる設置済みカード ',trash,' ',b);ha.appendChild(row);return}if(x.c.special==='ninjaguild'){let row=document.createElement('div');row.style.margin='4px';let sel=document.createElement('select');[...installCostOptions(1),...installCostOptions(2)].filter((x,i,a)=>a.findIndex(y=>y.id===x.id)===i).forEach(x=>{let o=document.createElement('option');o.value=x.id;o.textContent=x.label;sel.appendChild(o)});let b=document.createElement('button');b.className='secondary';b.textContent='忍者ギルドを仮設置（資金5）';b.disabled=!sel.options.length;b.onclick=()=>installNinjaGuild(x.i,sel.value);row.append('使用するサイコロ ',sel,' ',b);ha.appendChild(row);return}if(x.c.special==='paneteria'){let row=document.createElement('div');row.style.margin='4px';let sel=costSelect(null);let b=document.createElement('button');b.className='secondary';b.textContent='ナーロッパランドを仮設置';b.disabled=!sel.options.length;b.onclick=()=>installPaneteria(x.i,sel.value);row.append('使用するサイコロ ',sel,' ',b);ha.appendChild(row);return}if(x.c.special==='lordmeeting'){let row=document.createElement('div');row.style.margin='4px';let sel=optionSelect([1,6]);let b=document.createElement('button');b.className='secondary';b.textContent='領主会議を仮設置（🎲1/6＋資金4）';b.disabled=!sel.options.length||powers[turn].y<4;b.onclick=()=>installLordMeeting(x.i,sel.value);row.append('使用 ',sel,' ',b);ha.appendChild(row);return}
+if(x.c.special==='blackcasino'){let row=document.createElement('div');row.style.margin='4px';let s2=costSelect(2),s5=costSelect(5);let b=document.createElement('button');b.className='secondary';b.textContent='開拓ラッシュを仮設置（食料5）';b.disabled=!s2.options.length||!s5.options.length;b.onclick=()=>installBlackCasino(x.i,s2.value,s5.value);row.append('🎲2 ',s2,' 🎲5 ',s5,' ',b);ha.appendChild(row);return}if(['greatermine','greaterfarm','greaterbarracks','greatercommand'].includes(x.c.special)){let cfg={greatermine:{a:1,b:2,res:'y',amt:5,base:'mine',baseName:'鉱山'},greaterfarm:{a:3,b:4,res:'p',amt:5,base:'farm',baseName:'農場'},greaterbarracks:{a:5,b:6,res:'r',amt:5,base:'barracks',baseName:'兵舎'},greatercommand:{a:3,b:4,res2:true,base:'commandroom',baseName:'司令室'}}[x.c.special];let row=document.createElement('div');row.style.margin='4px';let sa=costSelect(cfg.a),sb=costSelect(cfg.b);let up=document.createElement('select');let normal=document.createElement('option');normal.value='normal';normal.textContent='通常設置（サイコロ2個を消費）';up.appendChild(normal);installed[turn].forEach((c,i)=>{if(c.special===cfg.base){let o=document.createElement('option');o.value='up:'+i;o.textContent='アップグレード：'+cfg.baseName+'を捨て札（サイコロ消費なし）';up.appendChild(o)}});let b=document.createElement('button');b.className='secondary';b.textContent=x.c.name+'を仮設置';let hasUpgrade=up.options.length>1;b.disabled=(cfg.res2?(powers[turn].y<4||powers[turn].r<2):powers[turn][cfg.res]<cfg.amt)||(!hasUpgrade&&(!sa.options.length||!sb.options.length));b.onclick=()=>installGreaterAcquisition(x.i,x.c.special,sa.value,sb.value,up.value);row.append('設置方法 ',up,'　🎲'+cfg.a+' ',sa,' 🎲'+cfg.b+' ',sb,' ',b);ha.appendChild(row);return}if(['famine','swordhunt','laws','graveyard','landgrab','bandit','publicmarket','scout'].includes(x.c.special)){renderNewNormalInstall(ha,x);return}if(x.c.special==='treasureship'){let row=document.createElement('div');row.style.margin='4px';let sel=document.createElement('select');[['y','資金'],['r','兵力'],['p','食料']].forEach(([v,n])=>{let o=document.createElement('option');o.value=v;o.textContent=n;sel.appendChild(o)});let b=document.createElement('button');b.className='secondary';b.textContent='幽玄の寶船を仮設置（同色30）';b.onclick=()=>installTreasureShip(x.i,sel.value);row.append('支払う色 ',sel,' ',b);ha.appendChild(row);return}
+if(x.c.special==='inadamashii'){let row=document.createElement('div');row.style.margin='4px';let b=document.createElement('button');b.className='secondary';b.textContent='稲魂を仮設置（設置済み8枚破棄）';b.disabled=installed[turn].length<8;b.onclick=()=>installInadamashii(x.i);row.append(b);ha.appendChild(row);return}
+if(x.c.special==='cursedclock'){let row=document.createElement('div');row.style.margin='4px';let sel=document.createElement('select');[...installCostOptions(5),...installCostOptions(6)].filter((x,i,a)=>a.findIndex(y=>y.id===x.id)===i).forEach(x=>{let o=document.createElement('option');o.value=x.id;o.textContent=x.label;sel.appendChild(o)});let b=document.createElement('button');b.className='secondary';b.textContent='呪怨の懐中時計を仮設置（食料3）';b.disabled=!sel.options.length;b.onclick=()=>installCursedClock(x.i,sel.value);row.append('使用するサイコロ ',sel,' ',b);ha.appendChild(row);return}let b=document.createElement('button');b.className='secondary';b.style.margin='4px';if(x.c.special==='elekiter'){let s2=costSelect(2),s5=costSelect(5);b.textContent='エレキテル研究所を仮設置（資金1兵力1食料1）';b.disabled=!s2.options.length||!s5.options.length;b.onclick=()=>installElekiter(x.i,s2.value,s5.value);let row=document.createElement('div');row.append('🎲2 ',s2,' 🎲5 ',s5,' ',b);ha.appendChild(row);return}else if(x.c.special==='nanban'){let sa=costSelect(null),sb=costSelect(null);b.textContent='南蛮煙管を仮設置（資金2兵力2食料2）';b.disabled=installCostOptions(null).length<2;b.onclick=()=>installNanban(x.i,sa.value,sb.value);let row=document.createElement('div');row.append('サイコロ① ',sa,' ② ',sb,' ',b);ha.appendChild(row);return}ha.appendChild(b)});
+ let deadCount=(CHARACTER_DATA[charOf(turn)]?.deadMansTrigger?1:0)+(employeeUniqueAbilitiesEnabled(turn)?(employees[turn]||[]):[]).filter(e=>e.deadMansTrigger).length+(copiedAbility==='デッドマンズトリガー'?1:0);if(deadCount){let row=document.createElement('div');row.className='actionblock';let sel=document.createElement('select');hands[turn].forEach((c,i)=>{let o=document.createElement('option');o.value=i;o.textContent=c.name;sel.appendChild(o)});let b=document.createElement('button');b.className='secondary';b.textContent='《デッドマンズトリガー》：通常手札1枚→命令書'+deadCount+'枚';b.disabled=!hands[turn].length;b.onclick=()=>{let i=+sel.value;if(!hands[turn][i])return;discard.push(hands[turn].splice(i,1)[0]);for(let n=0;n<deadCount;n++)drawBread(turn);renderGame()};row.append('捨てる通常手札 ',sel,' ',b);ha.appendChild(row)}
+ let active=installed[turn].filter(c=>c.special==='elekiter');
+ active.forEach((c,i)=>{let row=document.createElement('div');row.style.margin='5px 0';let sel=document.createElement('select');unusedDice().forEach(d=>{let o=document.createElement('option');o.value=d.id;o.textContent='🎲'+d.value+'（#'+d.id+'）';sel.appendChild(o)});let b=document.createElement('button');b.className='secondary';b.textContent=elekiterUsed[turn]?'使用済み':'研究所を使用';b.disabled=elekiterUsed[turn]||!unusedDice().length;b.onclick=()=>useElekiter(sel.value);row.append('エレキテル研究所：サイコロ1個 → 資金1・兵力1・食料1　',sel,b);ic.appendChild(row)});
+ installed[turn].filter(c=>c.special==='nanban').forEach(c=>{let d=document.createElement('div');d.style.margin='5px 0';d.textContent='南蛮煙管：ターン開始時に資金・兵力・食料から1種類を選び2個獲得';ic.appendChild(d)});
+ installed[turn].filter(c=>c.special==='cursedclock').forEach(c=>{let d=document.createElement('div');d.style.margin='5px 0';d.textContent='呪怨の懐中時計：設置済み';ic.appendChild(d)});
+ installed[turn].filter(c=>c.special==='tenkucat').forEach(c=>{let d=document.createElement('div');d.style.margin='5px 0';d.innerHTML='<strong>天駆猫</strong>：ターン開始時に資金・兵力・食料から1種類を選び1個獲得'+(c.image?'<img class="installedimg zoomable" src="'+c.image+'" alt="天駆猫">':'');ic.appendChild(d)});
+ installed[turn].filter(c=>c.special==='ninjaguild').forEach(c=>{let d=document.createElement('div');d.style.margin='5px 0';d.innerHTML='<strong>忍者ギルド</strong>：他プレイヤーの出目1で条件発動'+(c.image?'<img class="installedimg zoomable" src="'+c.image+'" alt="忍者ギルド">':'');ic.appendChild(d)});
+ installed[turn].filter(c=>c.special==='paneteria').forEach(c=>{let d=document.createElement('div');d.style.margin='5px 0';d.textContent='ナーロッパランド：設置済み';ic.appendChild(d)});
+ installed[turn].filter(c=>c.special==='blackcasino').forEach(c=>{let d=document.createElement('div');d.style.margin='5px 0';d.textContent='開拓ラッシュ：設置済み';ic.appendChild(d)}); installed[turn].filter(c=>['greatermine','greaterfarm','greaterbarracks','greatercommand'].includes(c.special)).forEach(c=>{let d=document.createElement('div');d.style.margin='5px 0';d.textContent=c.name+'：'+effectText(c).replace(/^設置：[^。]+。/,'');ic.appendChild(d)});
+ renderNewNormalInstalledActions(ic);
+ installed[turn].filter(c=>['plan','adjust','restrict','permit'].includes(c.special)).forEach(c=>{let row=document.createElement('div');row.style.margin='5px 0';let sel=dieSelect(unusedDice());let b=document.createElement('button');b.className='secondary';b.disabled=!!stdAbilityUsed[c.id]||!unusedDice().length;b.textContent=stdAbilityUsed[c.id]?'使用済み':c.name+'を使用';if(c.special==='adjust'){let dir=document.createElement('select');[-1,1].forEach(v=>{let o=document.createElement('option');o.value=v;o.textContent=v<0?'−1':'+1';dir.appendChild(o)});b.onclick=()=>useStdAbility(c.id,c.special,sel.value,+dir.value);row.append(c.name+'：',sel,' ',dir,' ',b)}else{b.onclick=()=>useStdAbility(c.id,c.special,sel.value);row.append(c.name+'：',sel,' ',b)}ic.appendChild(row)});
+ installed[turn].filter(c=>['mine','farm','barracks','commandroom','warehouse','church'].includes(c.special)).forEach(c=>{let d=document.createElement('div');d.style.margin='5px 0';d.textContent=c.name+'：'+effectText(c).replace(/^設置：[^。]+。/,'');ic.appendChild(d)});
+ if(!installed[turn].length&&!temporary[turn].length)ic.textContent='設置済みカードなし';
+}
+
+function consumeThreeAny(a,b,c){if(!a||!b||!c||new Set([a,b,c]).size<3)return false;return consumeCostChoice(a)&&consumeCostChoice(b)&&consumeCostChoice(c)}
+function renderNewNormalInstall(parent,x){
+ let c=x.c,row=document.createElement('div');row.style.margin='4px';let b=document.createElement('button');b.className='secondary';b.textContent=c.name+'を仮設置（'+c.costText+'）';
+ if(c.special==='famine'){let a=costSelect(3),d=costSelect(3),e=costSelect(3);b.disabled=installCostOptions(3).length<3||powers[turn].p<3;b.onclick=()=>installNewNormal(x.i,[a.value,d.value,e.value]);row.append('🎲3 ',a,' 🎲3 ',d,' 🎲3 ',e,' ',b)}
+ else if(c.special==='swordhunt'){let a=costSelect(6);b.disabled=!a.options.length||powers[turn].r<4;b.onclick=()=>installNewNormal(x.i,[a.value]);row.append('🎲6 ',a,' ',b)}
+ else if(c.special==='laws'){b.disabled=powers[turn].y<5;b.onclick=()=>installNewNormal(x.i,[]);row.append(b)}
+ else if(c.special==='graveyard'){let a=optionSelect([4,5]);b.disabled=!a.options.length||powers[turn].p<1||powers[turn].r<2;b.onclick=()=>installNewNormal(x.i,[a.value]);row.append('🎲4/5 ',a,' ',b)}
+ else if(c.special==='landgrab'){let a=costSelect(2),d=costSelect(5);b.disabled=!a.options.length||!d.options.length||powers[turn].y<2||powers[turn].p<2||powers[turn].r<2;b.onclick=()=>installNewNormal(x.i,[a.value,d.value]);row.append('🎲2 ',a,' 🎲5 ',d,' ',b)}
+ else if(c.special==='bandit'){let a=costSelect(null),d=costSelect(null),e=costSelect(null);b.disabled=installCostOptions(null).length<3||powers[turn].y<4||powers[turn].p<3;b.onclick=()=>installNewNormal(x.i,[a.value,d.value,e.value]);row.append('ANY ',a,' ANY ',d,' ANY ',e,' ',b)}
+ else if(c.special==='publicmarket'){let a=costSelect(null);b.disabled=!a.options.length||powers[turn].y<1||powers[turn].p<1||powers[turn].r<1;b.onclick=()=>installNewNormal(x.i,[a.value]);row.append('ANY ',a,' ',b)}
+ else if(c.special==='scout'){b.disabled=powers[turn].y<2||powers[turn].p<2||powers[turn].r<2||(employees[turn]||[]).length>=effectiveHireLimit();b.onclick=()=>installNewNormal(x.i,[]);row.append(b)}
+
+ parent.appendChild(row)
+}
+function installNewNormal(handIndex,choices){let c=hands[turn][handIndex],p=powers[turn];if(!c)return;let ok=false;
+ if(c.special==='famine'){if(p.p<3)return alert('食料3が必要です。');if(choices.length<3||new Set(choices).size<3)return alert('異なる3枚/3個を選んでください。');ok=choices.every(ch=>consumeCostChoice(ch,3));if(!ok)return alert('🎲3を3個満たしてください。');p.p-=3}
+ else if(c.special==='swordhunt'){if(p.r<4)return alert('兵力4が必要です。');if(!consumeCostChoice(choices[0],6))return alert('🎲6が必要です。');p.r-=4}
+ else if(c.special==='laws'){if(p.y<5)return alert('資金5が必要です。');p.y-=5}
+ else if(c.special==='graveyard'){if(p.p<1||p.r<2)return alert('食料1・兵力2が必要です。');if(!consumeOneOf(choices[0],[4,5]))return alert('🎲4または5が必要です。');p.p--;p.r-=2}
+ else if(c.special==='landgrab'){if(p.y<2||p.p<2||p.r<2)return alert('資金・食料・兵力が2個ずつ必要です。');if(choices.length<2||new Set(choices).size<2)return alert('異なる2枚/2個を選んでください。');if(!consumeCostChoice(choices[0],2)||!consumeCostChoice(choices[1],5))return alert('🎲2と🎲5が必要です。');p.y-=2;p.p-=2;p.r-=2}
+ else if(c.special==='bandit'){if(p.y<4||p.p<3)return alert('資金4・食料3が必要です。');if(choices.length<3||new Set(choices).size<3)return alert('異なる3枚/3個を選んでください。');if(!consumeThreeAny(...choices))return alert('任意のサイコロ3個が必要です。');p.y-=4;p.p-=3}
+ else if(c.special==='publicmarket'){if(p.y<1||p.p<1||p.r<1)return alert('資金・食料・兵力が1個ずつ必要です。');if(!consumeCostChoice(choices[0]))return alert('任意のサイコロ1個が必要です。');p.y--;p.p--;p.r--}
+ else if(c.special==='scout'){if((employees[turn]||[]).length>=effectiveHireLimit())return alert('雇用枠が上限のため設置できません。');if(p.y<2||p.p<2||p.r<2)return alert('資金・食料・兵力が2個ずつ必要です。');p.y-=2;p.p-=2;p.r-=2}
+
+ else return;
+ let got=hands[turn].splice(handIndex,1)[0];registerInstallation(turn,got);renderGame()
+}
+let graveyardUsed=[],publicMarketUsed=[];
+// プレイヤーごとの「カード個体ID → 使用済み」を既存の同期・保存に載せる。
+// 旧版の true は、次の自分のターンまで全個体使用済みとして扱う。
+function normalCardActionUsed(usage,card){return usage[turn]===true||!!usage[turn]?.[card.id]}
+function useGraveyard(cardIndex){
+ if(!isViewingOwnTurn())return;
+ const owner=turn,c=installed[owner]?.[cardIndex];
+ if(!c||c.special!=='graveyard')return;
+ if(normalCardActionUsed(graveyardUsed,c))return alert('このオルフェンズはこのターン使用済みです。');
+ if(!discard.length)return alert('捨て札がありません。');
+ let colors=[['y','資金'],['p','食料'],['r','兵力']].filter(([k])=>powers[owner][k]>0);
+ if(!colors.length)return alert('消費できる資源がありません。');
+ let opts=discard.map((c,i)=>({c,i,label:c.name}));
+ chooseLegendCard('オルフェンズ','回収するカードをタップしてください。',opts,o=>{
+  let m=q('#legendChoiceModal'),grid=q('#legendChoiceCards');
+  q('#legendChoiceTitle').textContent='消費する資源';
+  q('#legendChoiceNote').textContent='資金・食料・兵力のうち1個をタップして消費します。';
+  grid.innerHTML='';
+  colors.forEach(([k,n])=>{
+   let b=document.createElement('button');b.className='secondary';b.style.padding='14px';
+   b.textContent=n+'（所持 '+powers[owner][k]+'）';
+   b.onclick=()=>{
+    if(turn!==owner||!isViewingOwnTurn()||!installed[owner].includes(c)||normalCardActionUsed(graveyardUsed,c)||powers[owner][k]<1)return;
+    let i=discard.indexOf(o.c);if(i<0)return;
+    m.classList.add('hidden');powers[owner][k]--;hands[owner].push(discard.splice(i,1)[0]);
+    (graveyardUsed[owner]||={})[c.id]=true;renderGame();
+   };
+   grid.appendChild(b);
+  });
+  q('#legendChoiceCancel').onclick=()=>m.classList.add('hidden');m.classList.remove('hidden');
+ },()=>renderGame());
+}
+function usePublicMarket(cardIndex){
+ if(!isViewingOwnTurn())return;
+ const owner=turn,c=installed[owner]?.[cardIndex];
+ if(!c||c.special!=='publicmarket')return;
+ if(normalCardActionUsed(publicMarketUsed,c))return alert('この交易場はこのターン使用済みです。');
+ if(powers[turn].y<2)return alert('交易場の使用には資金2個が必要です。');
+ let g=groups();if(!g.size)return alert('公開カードがありません。');
+ let keys=[...g.keys()];
+ let mraw=turnClockPrompt('獲得する公開カードの番号を入力してください。\n'+keys.map((k,i)=>(i+1)+': '+g.get(k)[0].name+' ×'+g.get(k).length).join('\n'));
+ if(mraw===null)return;
+ let mi=Number(mraw)-1;if(!Number.isInteger(mi)||mi<0||mi>=keys.length)return alert('正しい公開カード番号を入力してください。');
+ let key=keys[mi],got=market.filter(c=>c.key===key);
+ // 獲得したカードも捨てる候補に含める。キャンセル時は資金・公開場・手札を変更しない。
+ let candidates=[...hands[turn],...got];
+ let hraw=turnClockPrompt('獲得後に捨てる手札の番号を入力してください。\n'+candidates.map((c,i)=>(i+1)+': '+c.name).join('\n'));
+ if(hraw===null)return;
+ let hi=Number(hraw)-1;if(!Number.isInteger(hi)||hi<0||hi>=candidates.length)return alert('正しい手札番号を入力してください。');
+ if(turn!==owner||!isViewingOwnTurn()||!installed[owner].includes(c)||normalCardActionUsed(publicMarketUsed,c)||powers[owner].y<2)return;
+ blockAllMarketUndo('交易場で公開場が変更されました。');
+ powers[turn].y-=2;
+ market=market.filter(c=>c.key!==key);
+ hands[turn].push(...got);
+ let out=hands[turn].splice(hi,1)[0];discard.push(out);
+ addDialog('交易場：P'+(turn+1)+'が公開場から「'+got[0].name+'」'+(got.length>1?'×'+got.length:'')+'を獲得し、手札を1枚捨てました。');
+ refillMarket();
+ (publicMarketUsed[turn]||={})[c.id]=true;
+ renderGame();
+}
+function useScout(cardIndex){if(!isViewingOwnTurn())return alert('相手ターン中は使用できません。');if((employees[turn]||[]).length>=effectiveHireLimit())return alert('雇用枠が上限です。');let c=installed[turn][cardIndex];if(!c||c.special!=='scout')return;discard.push(installed[turn].splice(cardIndex,1)[0]);let e=gachaCast();if(!e)return alert('雇用できるキャストが実装されていません。');if(sameUniqueAbilityAsLord(e)&&implementedCastPool(e.rarity).length&&turnClockConfirm(e.rarity+'「'+e.name+'」の固有能力は領主と同じです。\nこのキャストを雇用せず、同じレアリティでもう一度雇用しますか？'))e=redrawSameRarityCast(e)||e;employees[turn].push(e);hiredThisTurn=true;if(employeeUniqueAbilitiesEnabled(turn)&&e.hireBread){for(let i=0;i<e.hireBread;i++)drawBread(turn);}triggerNotices.push('スカウト：'+e.rarity+'「'+e.name+'」を雇用しました。');renderGame()}
+function organizationUpgradeRarity(r){return ({N:'R',R:'SR',SR:'SSR',SSR:'UR'})[r]||null}
+function organizationPool(rarity){
+ let packIds=[];Object.values(KOKORYO_PACKS).forEach(pack=>{if(isPackEnabled(pack.id))packIds.push(...(pack.castIds||Object.keys(pack.casts||{})))});
+ let ids=[...new Set([...IMPLEMENTED_CAST_IDS,...packIds])];
+ return ids.map(id=>CAST_TYPES[id]).filter(e=>e&&e.rarity===rarity&&!e.synthesisOnly&&(rarity!=='UR'||!isUniqueRareAlreadyHired(e.id)));
+}
+function renderPackInstall(parent,x){
+ let spec=x.c.installSpec||{};
+ if(typeof spec.render==='function'){spec.render({parent,x,card:x.c,api:packRuntimeApi(turn),install:(choices=[])=>installPackCard(x.i,choices)});return}
+ let row=document.createElement('div');row.style.margin='4px';let choices=[],faces=spec.faces||[];
+ for(const face of faces){let sel=optionSelect(face);choices.push(sel);row.append('🎲'+face.join('/')+' ',sel,' ')}
+ let anyNeed=typeof spec.any==='function'?Math.max(0,+spec.any({card:x.c,owner:turn,api:packRuntimeApi(turn)})||0):Math.max(0,+spec.any||0);
+ for(let i=0;i<anyNeed;i++){let sel=costSelect(null);choices.push(sel);row.append('ANY'+(anyNeed>1?' '+(i+1):'')+' ',sel,' ')}
+ let b=document.createElement('button');b.className='secondary';b.textContent=x.c.name+'を仮設置';let res=spec.resources||{};b.disabled=choices.some(sel=>!sel.options.length)||powers[turn].y<(res.y||0)||powers[turn].p<(res.p||0)||powers[turn].r<(res.r||0);b.onclick=()=>installPackCard(x.i,choices.map(sel=>sel.value));row.appendChild(b);parent.appendChild(row)
+}
+function installPackCard(handIndex,choices=[]){
+ let c=hands[turn][handIndex],spec=c?.installSpec;if(!c||!spec)return;
+ if(typeof spec.resolve==='function'){let result=spec.resolve({handIndex,choices,card:c,owner:turn,api:packRuntimeApi(turn)});if(result===false)return;if(result==='handled'){renderGame();return}}
+ let faces=spec.faces||[],anyNeed=typeof spec.any==='function'?Math.max(0,+spec.any({card:c,owner:turn,api:packRuntimeApi(turn)})||0):Math.max(0,+spec.any||0),needs=[...faces,...Array.from({length:anyNeed},()=>null)];
+ let res=spec.resources||{},p=powers[turn];if(p.y<(res.y||0)||p.p<(res.p||0)||p.r<(res.r||0))return alert('設置に必要な資源が足りません。');
+ if(choices.length!==needs.length||new Set(choices).size!==choices.length)return alert('異なるサイコロまたは命令書を選んでください。');
+ // すべて検証してから消費する。命令書はインデックスの大きい順に消費する。
+ for(let i=0;i<needs.length;i++){let choice=String(choices[i]),[kind,n]=choice.split(':'),face=needs[i];if(kind==='d'){let d=unusedDice().find(x=>x.id===+n);if(!d||face&&!face.includes(d.value))return alert('必要な出目を満たしていません。')}else if(kind==='b'){let b=breadHands[turn][+n];if(!b||face&&b.value!=='any'&&!face.includes(b.value))return alert('必要な命令書がありません。')}else if(!choice.startsWith('free:request:'))return alert('設置コストが不正です。')}
+ let ordered=choices.map((v,i)=>({v,i})).sort((a,b)=>{let ai=String(a.v).startsWith('b:')?Number(String(a.v).split(':')[1]):-1,bi=String(b.v).startsWith('b:')?Number(String(b.v).split(':')[1]):-1;return bi-ai});
+ for(const x of ordered){let face=needs[x.i],v=x.v;if(face){if(!face.some(n=>consumePackFaceCostDry(v,n)))return alert('設置コストの処理に失敗しました。')}else if(!consumeCostChoice(v))return alert('設置コストの処理に失敗しました。')}
+ p.y-=res.y||0;p.p-=res.p||0;p.r-=res.r||0;let got=hands[turn].splice(handIndex,1)[0];registerInstallation(turn,got);renderGame()
+}
+function consumePackFaceCostDry(choice,required){let [kind,n]=String(choice).split(':');if(kind==='d'){let d=unusedDice().find(x=>x.id===+n&&x.value===required);if(!d)return false;d.used=true;return true}if(kind==='b'){let b=breadHands[turn][+n];if(!b||b.value!=='any'&&b.value!==required)return false;breadDiscard.push(breadHands[turn].splice(+n,1)[0]);recycleBreadIfEmpty();return true}return consumeCostChoice(choice,required)}
+function upgradeRarity(r){return ({N:'R',R:'SR',SR:'SSR',SSR:'UR'})[r]||null}
+function packCastPool(rarity){let packIds=[];Object.values(KOKORYO_PACKS).forEach(pack=>{if(isPackEnabled(pack.id))packIds.push(...(pack.castIds||Object.keys(pack.casts||{})))});let ids=[...new Set([...IMPLEMENTED_CAST_IDS,...packIds])];return ids.map(id=>CAST_TYPES[id]).filter(e=>e&&e.rarity===rarity&&!e.synthesisOnly&&(rarity!=='UR'||!isUniqueRareAlreadyHired(e.id)))}
+function oneStepUpgradeCast(target,{allowUR=true}={}){
+ if(!target)return null;
+ let nr=upgradeRarity(target.rarity);if(!nr||(!allowUR&&nr==='UR'))return null;
+ let mappedId=CAST_SYNTHESIS[target.id],mapped=mappedId&&CAST_TYPES[mappedId];
+ if(mapped&&mapped.rarity===nr)return {...mapped};
+ let pool=packCastPool(nr);
+ return pool.length?{...pool[Math.floor(Math.random()*pool.length)]}:null
+}
+function organizationMaterialGroups(){let staff=employees[turn]||[],by={};staff.forEach((e,i)=>{if(e.rarity!=='UR')(by[e.rarity]||(by[e.rarity]=[])).push({e,i})});return by}
+function usePromoteCastPair(card,spec,rarity,firstIndex,secondIndex){
+ if(!isViewingOwnTurn())return alert('相手ターン中は使用できません。');if(organizationUsed.includes(card.id))return alert('このカードはこのターン使用済みです。');let cost=spec.cost||{},p=powers[turn];if(p.y<(cost.y||0)||p.p<(cost.p||0)||p.r<(cost.r||0))return alert('起動に必要な資源が足りません。');let by=organizationMaterialGroups(),cand=by[rarity]||[];let a=cand.find(x=>x.i===+firstIndex),b=cand.find(x=>x.i===+secondIndex);if(!a||!b||a.i===b.i)return alert('同じレアリティの異なる2人を選んでください。');let nextR=upgradeRarity(rarity),pool=packCastPool(nextR);if(!nextR||!pool.length)return alert('1段階上の排出候補がありません。');p.y-=cost.y||0;p.p-=cost.p||0;p.r-=cost.r||0;let staff=employees[turn]||[];[a.i,b.i].sort((x,y)=>y-x).forEach(i=>staff.splice(i,1));let e=pool[Math.floor(Math.random()*pool.length)];staff.push({...e});organizationUsed.push(card.id);triggerNotices.push('《'+card.name+'》：'+rarity+'2人を再編し、'+nextR+'「'+castDisplayName(e)+'」を雇用しました。');renderGame()
+}
+function renderPackFieldAction(parent,c){let spec=c.fieldAction;if(!spec)return;if(typeof spec.render==='function'){spec.render({parent,card:c,spec,owner:turn,api:packRuntimeApi(turn)});return}if(spec.type==='promoteCastPair'){let cost=spec.cost||{},used=organizationUsed.includes(c.id),by=organizationMaterialGroups(),rarities=['N','R','SR','SSR'].filter(r=>(by[r]||[]).length>=2&&packCastPool(upgradeRarity(r)).length);let wrap=document.createElement('div');wrap.className='actionblock';wrap.style.margin='5px';let label=document.createElement('div');label.textContent=used?'《'+c.name+'》：使用済み':'《'+c.name+'》 資金'+(cost.y||0)+'・食料'+(cost.p||0)+'・兵力'+(cost.r||0);wrap.appendChild(label);if(!used&&rarities.length){let raritySel=document.createElement('select'),firstSel=document.createElement('select'),secondSel=document.createElement('select');rarities.forEach(r=>{let o=document.createElement('option');o.value=r;o.textContent=r+' ×2 → '+upgradeRarity(r);raritySel.appendChild(o)});function fillMaterials(){let cand=by[raritySel.value]||[];firstSel.innerHTML='';secondSel.innerHTML='';cand.forEach((x,i)=>{let text=castDisplayName(x.e)+' #'+(i+1);let o1=document.createElement('option');o1.value=x.i;o1.textContent=text;firstSel.appendChild(o1);let o2=document.createElement('option');o2.value=x.i;o2.textContent=text;secondSel.appendChild(o2)});if(secondSel.options.length>1)secondSel.selectedIndex=1}raritySel.onchange=fillMaterials;firstSel.onchange=()=>{if(secondSel.value===firstSel.value&&secondSel.options.length>1)secondSel.selectedIndex=(firstSel.selectedIndex+1)%secondSel.options.length};fillMaterials();let b=document.createElement('button');b.className='secondary';b.textContent='組織再編する';b.disabled=powers[turn].y<(cost.y||0)||powers[turn].p<(cost.p||0)||powers[turn].r<(cost.r||0);b.onclick=()=>usePromoteCastPair(c,spec,raritySel.value,firstSel.value,secondSel.value);let row=document.createElement('div');row.className='row';row.style.marginTop='6px';row.append(raritySel,firstSel,secondSel,b);wrap.appendChild(row)}else if(!used){let note=document.createElement('div');note.className='small';note.textContent='再編できる同レアリティの雇用キャラクターが2人いません。';wrap.appendChild(note)}parent.appendChild(wrap)}}
+
+function useDoubleHire(cardIndex){
+ if(!isViewingOwnTurn())return;
+ let c=installed[turn]?.[cardIndex];if(!c||c.special!=='doubleHire')return;
+ if(hiredThisTurn)return alert('雇用は1ターンに1回までです。');
+ if((employees[turn]||[]).length+2>effectiveHireLimit())return alert('W雇用には雇用枠が2人分必要です。');
+ // 通常雇用1回分だけ支払い、2人目は同じ雇用の追加分として確定する。
+ if(!hireEmployee(unusedDice()[0]?.id))return;
+ let i=installed[turn].indexOf(c);if(i>=0)discard.push(installed[turn].splice(i,1)[0]);
+ let e=gachaCast();if(e)finalizeHire(e);
+ renderGame();
+}
+function renderPack2InstalledActions(ic){
+ let st=installed[turn];
+ st.forEach((c,i)=>{if(c.special!=='doubleHire')return;let b=document.createElement('button');b.className='secondary';b.textContent='《W雇用》を使う（この設置カードを捨てる）';b.disabled=hiredThisTurn||(employees[turn]||[]).length+2>effectiveHireLimit()||(!isHireFree()&&(!unusedDice().length||powers[turn].y<5));b.onclick=()=>useDoubleHire(i);ic.appendChild(b)});
+ st.filter(c=>c.special==='hireCapacity').forEach(c=>{let d=document.createElement('div');d.className='small';d.textContent='《受け入れ準備》：雇用上限＋1';ic.appendChild(d)});
+ st.filter(c=>c.special==='staffingAgency').forEach(c=>{let d=document.createElement('div');d.className='small';d.textContent='《派遣会社》：他プレイヤーの雇用時にも命令書＋資源を獲得';ic.appendChild(d)});
+}
+function renderNewNormalInstalledActions(ic){
+ renderPack2InstalledActions(ic);
+ installed[turn].forEach((c,i)=>{
+  if(['famine','swordhunt','laws','landgrab','bandit'].includes(c.special)){let d=document.createElement('div');d.style.margin='5px 0';d.textContent=c.name+'：'+effectText(c).replace(/^設置：[^。]+。/,'');ic.appendChild(d)}
+  if(c.special==='graveyard'){let b=document.createElement('button');b.className='secondary';b.style.margin='5px';b.textContent=normalCardActionUsed(graveyardUsed,c)?'オルフェンズ：使用済み':'オルフェンズを使用';b.disabled=normalCardActionUsed(graveyardUsed,c)||!discard.length;b.onclick=()=>useGraveyard(i);ic.appendChild(b)}
+  if(c.special==='publicmarket'){let b=document.createElement('button');b.className='secondary';b.style.margin='5px';b.textContent=normalCardActionUsed(publicMarketUsed,c)?'交易場：使用済み':'交易場を使用';b.disabled=normalCardActionUsed(publicMarketUsed,c)||powers[turn].y<2||!market.length;b.onclick=()=>usePublicMarket(i);ic.appendChild(b)}
+  if(c.special==='scout'){let b=document.createElement('button');b.className='secondary';b.style.margin='5px';b.textContent='スカウトを捨てて雇用';b.disabled=(employees[turn]||[]).length>=effectiveHireLimit();b.onclick=()=>useScout(i);ic.appendChild(b)}
+  if(c.fieldAction)renderPackFieldAction(ic,c)
+ })
+}
+function installElekiter(handIndex,a,b){let p=powers[turn];if(p.y<1||p.r<1||p.p<1)return alert('設置には資金・兵力・食料のパワーが1個ずつ必要です。');if(!distinctCostChoices(a,b))return alert('異なる2枚/2個を選んでください。');if(!consumeCostChoice(a,2)||!consumeCostChoice(b,5))return alert('出目2と出目5を満たすサイコロまたは命令書を選んでください。');p.y--;p.r--;p.p--;registerInstallation(turn,hands[turn].splice(handIndex,1)[0]);renderGame()}
+function installNanban(handIndex,a,b){let p=powers[turn];if(p.y<2||p.r<2||p.p<2)return alert('設置には資金・兵力・食料のパワーが2個ずつ必要です。');if(!distinctCostChoices(a,b))return alert('異なる2枚/2個を選んでください。');if(!consumeCostChoice(a)||!consumeCostChoice(b))return alert('使用するサイコロまたは命令書を2つ選んでください。');p.y-=2;p.r-=2;p.p-=2;registerInstallation(turn,hands[turn].splice(handIndex,1)[0]);renderGame()}
+function installNinjaGuild(handIndex,a){let p=powers[turn];if(p.y<5)return alert('設置には資金5が必要です。');let ok=(String(a).startsWith('free:request:')&&lordInstallDiceDiscount()>Number(String(a).split(':')[2]))?true:(String(a).startsWith('d:')?(()=>{let d=unusedDice().find(x=>'d:'+x.id===a&&(x.value===1||x.value===2));if(!d)return false;d.used=true;return true})():(()=>{let i=+String(a).split(':')[1],b=breadHands[turn][i];if(!b||!(b.value==='any'||b.value===1||b.value===2))return false;breadDiscard.push(breadHands[turn].splice(i,1)[0]);recycleBreadIfEmpty();return true})());if(!ok)return alert('出目1または2を満たすサイコロまたは命令書を選んでください。');p.y-=5;registerInstallation(turn,hands[turn].splice(handIndex,1)[0]);renderGame()}
+function installTenkuCat(handIndex,a,b,trashIndex){let p=powers[turn];if(p.y<2||p.r<1||p.p<2)return alert('設置には資金2・兵力1・食料2が必要です。');if(!distinctCostChoices(a,b))return alert('異なる2枚/2個を選んでください。');if(!installed[turn].length)return alert('天駆猫の設置には、正式に設置済みの他のマーケットカード1枚を捨て札にする必要があります。仮設置カードは選べません。');let idx=Number(trashIndex);if(!Number.isInteger(idx)||idx<0||idx>=installed[turn].length)return alert('捨て札にする設置済みカードを選んでください。');if(!consumeCostChoice(a,1)||!consumeCostChoice(b,6))return alert('出目1と出目6を満たすサイコロまたは命令書を選んでください。');p.y-=2;p.r-=1;p.p-=2;discard.push(installed[turn].splice(idx,1)[0]);registerInstallation(turn,hands[turn].splice(handIndex,1)[0]);renderGame()}
+function installCursedClock(handIndex,a){let p=powers[turn];if(p.p<3)return alert('設置には食料が3個必要です。');let ok=(String(a).startsWith('free:request:')&&lordInstallDiceDiscount()>Number(String(a).split(':')[2]))?true:(String(a).startsWith('d:')?(()=>{let d=unusedDice().find(x=>'d:'+x.id===a&&(x.value===5||x.value===6));if(!d)return false;d.used=true;return true})():(()=>{let i=+String(a).split(':')[1],b=breadHands[turn][i];if(!b||!(b.value==='any'||b.value===5||b.value===6))return false;breadDiscard.push(breadHands[turn].splice(i,1)[0]);recycleBreadIfEmpty();return true})());if(!ok)return alert('出目5または6を満たすサイコロまたは命令書を選んでください。');p.p-=3;let c=hands[turn].splice(handIndex,1)[0];registerInstallation(turn,c);renderGame()}
+
+function installTreasureShip(handIndex,color){let p=powers[turn];if(!['y','r','p'].includes(color)||p[color]<30)return alert('選んだ1色のパワーが30個必要です。');p[color]-=30;let c=hands[turn].splice(handIndex,1)[0];registerInstallation(turn,c);renderGame()}
+function installInadamashii(handIndex){if(installed[turn].length<8)return alert('正式に設置済みのマーケットカードが8枚必要です。');let names=installed[turn].map((c,i)=>(i+1)+': '+c.name).join('\n');let raw=turnClockPrompt('捨てる設置済みカード8枚の番号をカンマ区切りで入力してください。\n'+names);if(raw===null)return;let idx=[...new Set(raw.split(',').map(x=>Number(x.trim())-1))];if(idx.length!==8||idx.some(i=>!Number.isInteger(i)||i<0||i>=installed[turn].length))return alert('異なる8枚の番号を正しく入力してください。');idx.sort((a,b)=>b-a).forEach(i=>discard.push(installed[turn].splice(i,1)[0]));let c=hands[turn].splice(handIndex,1)[0];registerInstallation(turn,c);renderGame()}
+function resolveOnInstall(c,owner){
+ if(c.special==='lordmeeting')resolveLordMeetingInstall(owner);
+ runPackCardHook(c,'onInstall',{owner});
+ if(c.special==='massRecruitment'){for(let p=0;p<playerCount;p++){let e=gachaCast();if(e){let old=turn;turn=p;finalizeHire(e,'一斉採用：');turn=old;hiredThisTurn=false;}}let n=playerCount===2?1:playerCount===3?2:3;for(let i=0;i<n;i++)drawBread(owner);}
+ else if(c.special==='castLevelUp'){let staff=employees[owner]||[];if(staff.length){let msg=staff.map((e,i)=>(i+1)+'. '+castDisplayName(e)+' ['+e.rarity+']').join('\n');let i=Math.floor(+(turnClockPrompt('レベルアップする雇用キャラクター\n'+msg,'1')||0))-1;if(i>=0&&staff[i]){let ne=oneStepUpgradeCast(staff[i],{allowUR:false});if(ne)staff[i]=applyUniqueAbilityDef(ne);}}}
+ else if(c.special==='guaranteedUR'){let old=hands[owner];let e=packCastPool('UR')[Math.floor(Math.random()*packCastPool('UR').length)];if(e){let before=turn;turn=owner;finalizeHire({...e},'確定ガチャ：');turn=before;hiredThisTurn=false;}}
+ else if(c.special==='amicableRetirement'){let staff=employees[owner]||[];if(staff.length){let msg=staff.map((e,i)=>(i+1)+'. '+castDisplayName(e)+' ['+e.rarity+']').join('\n');let i=Math.floor(+(turnClockPrompt('解雇する雇用キャラクター\n'+msg,'1')||0))-1;if(i>=0&&staff[i]){nextHireMinRarity=upgradeRarity(staff[i].rarity);staff.splice(i,1);}}}
+ else if(c.special==='honeyTrap'){let targets=[];for(let p=0;p<playerCount;p++)if(p!==owner)(employees[p]||[]).forEach((e,i)=>targets.push({p,i,e}));if(targets.length){let n=Math.floor(+(turnClockPrompt('《ハニートラップ》：解雇する相手の雇用キャラクター番号\n'+targets.map((x,i)=>(i+1)+'. P'+(x.p+1)+' '+castDisplayName(x.e)).join('\n'),'1')||0));if(n&&targets[n-1])employees[targets[n-1].p].splice(targets[n-1].i,1)}}
+ else if(c.special==='employeeTrade'){let p=+turnClockPrompt('《トレード》：交換相手のP番号','2')-1;if(p>=0&&p<playerCount&&p!==owner&&(employees[owner]||[]).length&&(employees[p]||[]).length){let a=Math.floor(+(turnClockPrompt('自分の雇用キャラクター番号\n'+employees[owner].map((e,i)=>(i+1)+'. '+castDisplayName(e)).join('\n'),'1')||0))-1;let b=Math.floor(+(turnClockPrompt('相手の雇用キャラクター番号\n'+employees[p].map((e,i)=>(i+1)+'. '+castDisplayName(e)).join('\n'),'1')||0))-1;if(employees[owner][a]&&employees[p][b]){let t=employees[owner][a];employees[owner][a]=employees[p][b];employees[p][b]=t}}}
+ else if(c.special==='surpriseSpecialGacha'){let pool=['N','R','SR','SSR'].flatMap(r=>packCastPool(r));if(pool.length){let msg=pool.map((e,i)=>(i+1)+'. '+e.rarity+' '+castDisplayName(e)).join('\n');let n=Math.floor(+(turnClockPrompt('《サプライズスペシャルガチャ》\n雇用するキャラクター\n'+msg,'1')||0));if(n&&pool[n-1])finalizeHire({...pool[n-1]},'サプライズスペシャルガチャ：')}}
+ else if(c.special==='specialProcurement'){for(let p=0;p<playerCount;p++){let n=p===owner?15:5;let k=turnClockPrompt('《特需》：P'+(p+1)+'が獲得する資源\n資金/食料/兵力の個数を「資金,食料,兵力」で入力（合計'+n+'）',''+n+',0,0');if(k){let a=k.split(',').map(Number);if(a.length===3&&a.reduce((x,y)=>x+y,0)===n){powers[p].y+=a[0];powers[p].p+=a[1];powers[p].r+=a[2]}}}}
+ else if(c.special==='cursedclock'){gainResource(owner,'y',3,'effect');gainResource(owner,'r',3,'effect');gainResource(owner,'p',3,'effect');alert('呪怨の懐中時計の設置時効果：資金・兵力・食料を3個ずつ獲得しました。');}
+ else if(c.special==='paneteria'){blockAllMarketUndo('ナーロッパランドで市場が変更されました。');discard.push(...market);market=[];refillTo8();pendingParkTaken=[];pendingParkPlayers=parkSelectionOrder(owner);addDialog('ナーロッパランド：公開カードを置き直しました。P'+(owner+1)+'から順に1種類ずつ選びます。');}
+ else if(c.special==='blackcasino'){let drawn=drawOne();if(drawn){registerInstallation(owner,drawn);alert('開拓ラッシュ：山札の上から「'+drawn.name+'」を仮設置しました。')}else alert('開拓ラッシュ：設置できる山札がありません。');}
+}
+function installPaneteria(handIndex,a){if(!consumeCostChoice(a))return alert('使用するサイコロまたは命令書を選んでください。');let c=hands[turn].splice(handIndex,1)[0];registerInstallation(turn,c);renderGame()}
+function resolveLordMeetingInstall(owner){const distributed=distributeCommandsByQuota(owner,'all',p=>p===owner?3:1);for(const result of distributed){if(result.received)triggerNotices.push('領主会議：P'+(result.player+1)+'が命令書を'+result.received+'枚獲得しました。')}}
+function installLordMeeting(handIndex,a){let p=powers[turn];if(p.y<4)return alert('設置には資金4が必要です。');if(!consumeCostChoice(a,1)&&!consumeCostChoice(a,6))return alert('出目1または6を満たすサイコロまたは命令書を選んでください。');p.y-=4;let c=hands[turn].splice(handIndex,1)[0];registerInstallation(turn,c);renderGame()}
+function installBlackCasino(handIndex,a,b){let p=powers[turn];if(p.p<5)return alert('設置には食料5が必要です。');if(!distinctCostChoices(a,b))return alert('異なる2枚/2個を選んでください。');if(!consumeCostChoice(a,2)||!consumeCostChoice(b,5))return alert('出目2と出目5を満たすサイコロまたは命令書を選んでください。');p.p-=5;let c=hands[turn].splice(handIndex,1)[0];registerInstallation(turn,c);renderGame()}
+function installGreaterAcquisition(handIndex,special,a,b,mode){let c=hands[turn][handIndex],p=powers[turn];if(!c||c.special!==special)return;let cfg={greatermine:{a:1,b:2,res:'y',amt:5,base:'mine',baseName:'鉱山'},greaterfarm:{a:3,b:4,res:'p',amt:5,base:'farm',baseName:'農場'},greaterbarracks:{a:5,b:6,res:'r',amt:5,base:'barracks',baseName:'兵舎'},greatercommand:{a:3,b:4,res2:true,base:'commandroom',baseName:'司令室'}}[special];if(!cfg)return;if(cfg.res2){if(p.y<4||p.r<2)return alert('設置には資金4・兵力2が必要です。')}else if(p[cfg.res]<cfg.amt)return alert('設置に必要な資源が足りません。');if(String(mode).startsWith('up:')){let idx=+String(mode).split(':')[1],base=installed[turn][idx];if(!base||base.special!==cfg.base)return alert('アップグレード元の'+cfg.baseName+'を選んでください。');discard.push(installed[turn].splice(idx,1)[0]);}else{if(!distinctCostChoices(a,b))return alert('異なる2枚/2個を選んでください。');if(!consumeCostChoice(a,cfg.a)||!consumeCostChoice(b,cfg.b))return alert('必要な2つの出目を満たすサイコロまたは命令書を選んでください。');}if(cfg.res2){p.y-=4;p.r-=2}else p[cfg.res]-=cfg.amt;let got=hands[turn].splice(handIndex,1)[0];registerInstallation(turn,got);renderGame()}
+
+// 設置者から開始し、次の手番へ順番に全員が1回ずつ選択する。
+function parkSelectionOrder(owner){return Array.from({length:playerCount},(_,i)=>(owner+i)%playerCount)}
+function finishEmptyParkChoices(){
+ // 山札・公開場が尽きた場合は、残りのプレイヤーが選択できずに停止しないよう処理する。
+ if(!pendingParkPlayers.length||groups().size)return;
+ while(pendingParkPlayers.length){
+  let p=pendingParkPlayers.shift();
+  addDialog('ナーロッパランド：P'+(p+1)+'は公開カードがないため選択を終了しました。');
+ }
+}
+function applyOnlineParkPick(p,key){
+ if(!pendingParkPlayers.length||pendingParkPlayers[0]!==p)return false;
+ let got=market.filter(c=>c.key===key);if(!got.length)return false;
+ market=market.filter(c=>c.key!==key);hands[p].push(...got);
+ pendingParkTaken.push({player:p,name:got[0].name,count:got.length});
+ addDialog('ナーロッパランド：P'+(p+1)+'が公開場から「'+got[0].name+'」'+(got.length>1?'×'+got.length:'')+'を獲得しました。');
+ pendingParkPlayers.shift();renderGame();return true;
+}
+function renderParkChoice(){
+ let modal=q('#parkChoiceModal'),grid=q('#parkChoiceCards'),who=q('#parkChoiceWho'),taken=q('#parkChoiceTaken');
+ finishEmptyParkChoices();
+ if(!pendingParkPlayers.length){modal.classList.add('hidden');return}
+ let p=pendingParkPlayers[0],g=groups();
+ if(realOnlineMainMode&&viewer!==p){modal.classList.add('hidden');return;}
+ if(botMatchMode && botIsPlayer(p)){
+  modal.classList.add('hidden');
+  if(!window.__botParkChoiceQueued){
+   window.__botParkChoiceQueued=true;const clockParkToken=turnClockState.token;
+   setTimeout(()=>{
+    window.__botParkChoiceQueued=false;
+    if(clockParkToken!==turnClockState.token)return;
+    if(!pendingParkPlayers.length||pendingParkPlayers[0]!==p||!botMatchMode)return;
+    let options=[...groups()].map(([key,cards])=>({key,cards,score:botScoreCard(cards[0])}));
+    options.sort((a,b)=>b.score-a.score);
+    let best=options.find(x=>totalHandCount(p)+x.cards.length<=handLimit(p))||options[0];
+    if(best){while(totalHandCount(p)+best.cards.length>handLimit(p)&&hands[p].length){let order=hands[p].map((c,i)=>({i,score:botScoreCard(c)})).sort((a,b)=>a.score-b.score);discard.push(hands[p].splice(order[0].i,1)[0]);}}
+    if(best){let got=market.filter(c=>c.key===best.key);market=market.filter(c=>c.key!==best.key);hands[p].push(...got);
+     pendingParkTaken.push({player:p,name:got[0].name,count:got.length});
+     addDialog('ナーロッパランド：P'+(p+1)+'が公開場から「'+got[0].name+'」'+(got.length>1?'×'+got.length:'')+'を獲得しました。');
+    }
+    pendingParkPlayers.shift();renderGame();
+   },650);
+  }
+  return;
+ }
+ modal.classList.remove('hidden');grid.innerHTML='';
+ who.textContent='P'+(p+1)+'：獲得する公開カードを直接タップしてください。';
+ if(pendingParkTaken.length){taken.classList.remove('hidden');taken.innerHTML='<strong>ここまでの獲得</strong><div style="margin-top:5px">'+pendingParkTaken.map(x=>'P'+(x.player+1)+'：「'+x.name+'」'+(x.count>1?'×'+x.count:'')).join('<br>')+'</div>'}else{taken.classList.add('hidden');taken.innerHTML=''}
+ g.forEach((arr,key)=>{
+  let wrap=document.createElement('div'),b=card(arr[0],arr.length,false);
+  b.classList.add('selectable-card');b.style.cursor='pointer';
+  b.onclick=()=>{
+   if(realOnlineMainMode&&viewer!==p)return;
+   if(realOnlineMainMode){turnClockRequestPark(p,key);return}
+   if(!applyOnlineParkPick(p,key))return;
+  };
+  let hint=document.createElement('div');hint.className='small';hint.style.cssText='text-align:center;font-weight:800;margin-top:4px';hint.textContent='タップして獲得';
+  wrap.append(b,hint);grid.appendChild(wrap);
+ });
+}
+function useElekiter(id){if(elekiterUsed[turn])return alert('エレキテル研究所はターン中1回だけ使用できます。');let d=useDie(id);if(!d)return alert('使用できるサイコロがありません。');powers[turn].y++;powers[turn].r++;powers[turn].p++;let got=drawBread(turn);if(got)triggerNotices.push('エレキテル研究所：命令書「'+breadLabel(got)+'」を1枚獲得しました。');else triggerNotices.push('エレキテル研究所：命令書山札・捨て札がないため獲得できませんでした。');elekiterUsed[turn]=true;renderGame()}
+
+function groups(){let m=new Map();market.forEach(c=>{if(!m.has(c.key))m.set(c.key,[]);m.get(c.key).push(c)});return m}
+function renderFranAction(){
+ let panel=q('#franpanel'),box=q('#franaction');box.innerHTML='';
+ if(charOf(turn)!=='fran'){panel.classList.add('hidden');return}panel.classList.remove('hidden');
+ let field=installed[turn].map((c,i)=>({c,i})).filter(x=>x.c.vp!==null);
+ let hand=hands[turn].map((c,i)=>({c,i})).filter(x=>x.c.vp!==null);
+ if(!field.length||!hand.length){box.textContent='VPが数値で記載された設置済みカードと手札カードが必要です。?VPカードは対象外です。';return}
+ let from=document.createElement('select');field.forEach(x=>{let o=document.createElement('option');o.value=x.i;o.textContent=x.c.name+'（'+fixedVP(x.c)+'VP）';from.appendChild(o)});
+ let to=document.createElement('select');
+ function refresh(){to.innerHTML='';let c=installed[turn][+from.value];if(!c)return;let v=fixedVP(c);hand.filter(x=>fixedVP(x.c)===v||fixedVP(x.c)===v+1).forEach(x=>{let o=document.createElement('option');o.value=x.i;o.textContent=x.c.name+'（'+fixedVP(x.c)+'VP）';to.appendChild(o)})}
+ from.onchange=refresh;refresh();
+ let b=document.createElement('button');b.className='secondary';b.textContent='捨ててコスト無視で仮設置';b.onclick=()=>useFran(+from.value,+to.value);box.append('捨てる設置済み ',from,' → 手札 ',to,' ',b);
+}
+function renderSoraAction(){let panel=q('#sorapanel'),box=q('#soraaction');if(charOf(turn)!=='sora'){panel.classList.add('hidden');return}panel.classList.remove('hidden');box.innerHTML='';if(!hands[turn].length){box.textContent='捨てられるマーケットカードが手札にありません。';return}let sel=document.createElement('select');hands[turn].forEach((c,i)=>{let o=document.createElement('option');o.value=i;o.textContent=c.name;sel.appendChild(o)});let b=document.createElement('button');b.className='secondary';b.textContent='捨てて命令書を獲得';b.onclick=()=>useSora(+sel.value);box.appendChild(sel);box.appendChild(b)}
+function useSora(handIndex){if(charOf(turn)!=='sora')return;let c=hands[turn][handIndex];if(!c)return alert('捨てるマーケットカードを選んでください。');if(!breadDeck.length&&!breadDiscard.length)return alert('命令書の山札・捨て札がないため獲得できません。');discard.push(hands[turn].splice(handIndex,1)[0]);let got=drawBread(turn);if(got)triggerNotices.push('ソラ：手札の「'+c.name+'」を捨て、命令書「'+breadLabel(got)+'」を1枚獲得しました。');renderGame()}
+function useFran(fieldIndex,handIndex){if(charOf(turn)!=='fran')return;let old=installed[turn][fieldIndex],c=hands[turn][handIndex];if(!old||!c||old.vp===null||c.vp===null)return alert('対象カードを選んでください。');let v=fixedVP(old),nv=fixedVP(c);if(nv!==v&&nv!==v+1)return alert('同じVPまたは+1VPのカードを選んでください。');discard.push(installed[turn].splice(fieldIndex,1)[0]);registerInstallation(turn,hands[turn].splice(handIndex,1)[0]);renderGame()}
+let selectedHandDetailIndex=null;
+function renderBoardHand(){
+ let box=q('#boardHand');if(!box)return;box.innerHTML='';
+ if(!hands[turn]?.length){let e=document.createElement('div');e.className='muted';e.textContent='通常カード・スタンダードカードの手札はありません。';box.appendChild(e);return}
+ hands[turn].forEach((c,i)=>{
+  try{
+   let canInstall=false;
+   try{canInstall=handCardLikelyInstallable(c)}catch(err){console.error('hand installability',c,err)}
+   let w=document.createElement('div');w.className='board-hand-card'+(canInstall?' installable':'');
+   let v=card(c,1,false);w.appendChild(v);
+   let h=document.createElement('div');h.className='tap-hint';h.textContent='タップで確認';w.appendChild(h);
+   w.onclick=()=>openHandCardDetail(i);box.appendChild(w)
+  }catch(err){
+   console.error('hand render',c,err);
+   let w=document.createElement('div');w.className='board-hand-card';
+   w.innerHTML='<div class="card"><strong>'+(c?.name||'カード')+'</strong><div class="small">表示エラー</div></div>';
+   box.appendChild(w)
+  }
+ })
+}
+function openHandCardDetail(i){let c=hands[turn][i];if(!c)return;if(!q('#cardDetailModal').classList.contains('hidden')&&selectedHandDetailIndex===i){q('#cardDetailModal').classList.add('hidden');return;}selectedHandDetailIndex=i;q('#cardDetailTitle').textContent=c.name;q('#cardDetailView').innerHTML='';q('#cardDetailView').appendChild(card(c,1,false));q('#cardDetailView').onclick=()=>q('#cardDetailModal').classList.add('hidden');q('#cardDetailEffect').replaceChildren(cardInfoSections(c));let b=q('#cardDetailInstall');let supported=!!c.installSpec||c.type==='S'||['elekiter','nanban','cursedclock','tenkucat','ninjaguild','paneteria','lordmeeting','blackcasino','greatermine','greaterfarm','greaterbarracks','greatercommand','famine','swordhunt','laws','graveyard','landgrab','bandit','publicmarket','scout','treasureship','inadamashii'].includes(c.special);b.disabled=!supported;b.textContent=supported?(handCardLikelyInstallable(c)?'設置する':'設置操作を確認'):'このカードは設置操作未実装';q('#cardDetailModal').classList.remove('hidden')}
+function openSelectedInstall(){let i=selectedHandDetailIndex,c=hands[turn][i];if(!c)return;q('#cardDetailModal').classList.add('hidden');q('#installModalTitle').textContent=c.name+'の設置';renderCardActions(i);q('#installModal').classList.remove('hidden')}
+function showHandCards(){let m=q('#handModal'),e=q('#handList'),ex=q('#handExtras');q('#handModalTitle').textContent='P'+(turn+1)+'の手札';e.innerHTML='';if(!hands[turn].length){let x=document.createElement('div');x.className='muted';x.textContent='通常カード・スタンダードカードの手札はありません。';e.appendChild(x)}else{hands[turn].forEach(c=>{let w=document.createElement('div');w.appendChild(card(c,1,false));let t=document.createElement('div');t.className='small';t.style.marginTop='3px';t.replaceChildren(cardInfoSections(c));w.appendChild(t);e.appendChild(w)})}let orders=breadHands[turn].length?breadHands[turn].map(b=>'命令書'+breadLabel(b)).join(' / '):'なし';ex.textContent='命令書：'+orders+'　／　負債：'+(commandCounts[turn]||0)+'枚';m.classList.remove('hidden')}
+function showHireCardList(){
+ const modal=q('#hireCardListModal'),root=q('#hireCardListBody');
+ if(!modal||!root)return;
+ root.replaceChildren();
+ const order=[['N','N'],['R','R'],['SR','SR'],['SSR','SSR'],['UR','UR'],['CLR','CLR']];
+ const all=Object.values(CAST_TYPES).filter(e=>isPackEnabled(e.packId));
+ order.forEach(([rarity,label])=>{
+  const group=all.filter(e=>e.rarity===rarity).sort((a,b)=>String(a.id||'').localeCompare(String(b.id||''),'ja',{numeric:true}));
+  if(!group.length)return;
+  const heading=document.createElement('h3');heading.textContent=label+'（'+group.length+'種類）';heading.style.margin='14px 0 8px';root.appendChild(heading);
+  const grid=document.createElement('div');grid.className='employee-card-grid';
+  group.forEach(e=>{
+   const wrap=document.createElement('div');wrap.className='employee-card-wrap';
+   wrap.appendChild(employeeCardView(e));
+   const note=document.createElement('div');note.className='small';note.style.marginTop='5px';
+   note.textContent=e.id+(e.synthesisOnly||rarity==='CLR'?' ／ 通常ガチャ対象外':'');
+   wrap.appendChild(note);grid.appendChild(wrap);
+  });
+  root.appendChild(grid);
+ });
+ if(!all.length)root.textContent='表示できる雇用カードがありません。';
+ modal.classList.remove('hidden');
+}
+function showCardList(){
+ let m=q('#cardListModal'),root=q('#cardListBody');root.innerHTML='';
+ // ゲーム開始前は設定画面で現在選ばれているデッキ、開始後は実際に開始したデッキを参照する。
+ let selectedDeck=!q('#setup').classList.contains('hidden')?(q('#deckPreset')?.value||'standard1'):(gameSettings.deckId||'standard1');
+ let cfg=activeDeckConfig(selectedDeck);
+ let normalKeys=new Set(cfg.normalKeys||[]);
+ let lowerKeys=new Set(cfg.lowerLegendKeys||[]);
+ let upperKeys=new Set(cfg.upperLegendKeys||[]);
+ let groups=[
+  ['スタンダードカード',STD_BASE],
+  ['通常カード',NORMAL_BASE.filter(c=>c.implemented&&normalKeys.has(c.key))],
+  ['Lower Legend',LEGEND_CATALOG.filter(c=>c.tier==='lower'&&lowerKeys.has(c.id))],
+  ['Upper Legend',LEGEND_CATALOG.filter(c=>c.tier==='upper'&&upperKeys.has(c.id))]
+ ];
+ groups.forEach(([title,list])=>{
+  if(!list.length)return;
+  let h=document.createElement('h3');h.textContent=title;h.style.margin='12px 0 8px';root.appendChild(h);
+  let grid=document.createElement('div');grid.className='cards';
+  list.forEach(c=>{
+   let w=document.createElement('div');w.className='card';w.style.justifyContent='flex-start';
+   let imageSrc=resolvedContentImage(c);
+   if(imageSrc){let img=document.createElement('img');img.src=imageSrc;img.alt=c.name;img.className='cardimg zoomable';img.onerror=()=>{let ph=document.createElement('div');ph.className='muted';ph.style.cssText='aspect-ratio:456/701;border:1px dashed #bbb;border-radius:6px;display:flex;align-items:center;justify-content:center;background:#fff;margin-bottom:7px;text-align:center';ph.textContent='イラスト未設定';img.replaceWith(ph)};w.appendChild(img)}
+   else{let ph=document.createElement('div');ph.className='muted';ph.style.cssText='aspect-ratio:456/701;border:1px dashed #bbb;border-radius:6px;display:flex;align-items:center;justify-content:center;background:#fff;margin-bottom:7px;text-align:center';ph.textContent='イラスト未設定';w.appendChild(ph)}
+   let name=document.createElement('strong');name.textContent=c.name;w.appendChild(name);
+   w.appendChild(cardInfoSections(c));grid.appendChild(w)
+  });
+  root.appendChild(grid)
+ });
+ m.classList.remove('hidden')
+}
+function costTextForCard(c){
+ if(c.costText)return c.costText;
+ if(c.type==='LEGEND'||c.tier){
+  if(c.special==='resourceWipe')return 'ターン開始時に特殊獲得';
+  if(c.special==='amanomurakumo')return '🎲2/3/4/5の同じ出目×8';
+  if(c.special==='mayqueen')return '🎲2×3＋資金16';
+  if(c.special==='eggharp')return '🎲5×3＋兵力12';
+  if(c.special==='abilityCopy'||c.special==='scorchedEarth')return '🎲1～6各1＋資金4＋食料4＋兵力4';
+  if(c.special==='changeOfHeart')return '資金24';
+  if(c.special==='talentRecruit')return '🎲任意×4＋資金20';
+  if(c.special==='greatRefresh')return '🎲任意×4＋資金3＋食料3＋兵力3';
+  if(c.faces&&c.faces.length)return '🎲'+c.faces.join('/')+'のいずれか×3＋'+(c.resource?c.resource+'8':(c.cost?.y?'資金'+c.cost.y+'＋':'')+(c.cost?.r?'兵力'+c.cost.r+'＋':'')+(c.cost?.p?'食料'+c.cost.p+'＋':'')+'特殊条件');
+ }
+ if(c.special==='paneteria')return '🎲任意×1';
+ let t=effectText(c),m=t.match(/^設置：([^。]+)。/);return m?m[1]:'特殊条件';
+}
+function cleanCardEffect(c){
+ let t=c.effectText||effectText(c);
+ // 旧カードの説明に混在するコスト・VPを表示欄から取り除く。
+ t=t.replace(/^設置：[^。]+。\s*/,'').replace(/^(?:下位レジェンド|上位レジェンド)。(?:設置：[^。]+。)?\s*/,'').replace(/^[-+]?\d+VP。\s*/,'');
+ // 別々の効果の発動条件を段落の先頭に揃える（表示のみ）。
+ t=t.replace(/([。！？])\s*(?=(?:ターン開始時|設置時|設置する際|1ターンに1回|効果終了時|獲得時|ターン終了時|他のプレイヤーが|他プレイヤーが))/g,'$1\n');
+ return t||'効果なし';
+}
+// 表示専用: 効果文の資源名と数量を既存の資源アイコンへ置換する。
+// 元の効果テキストとゲーム処理は変更しない。
+function iconizeEffectText(text){
+ let result=String(text??'');
+ const icons={'資金':'💰','食料':'🍖','兵力':'⚔️'};
+ // 「資金を3獲得」「資金2個を消費」「食料を2人プレイなら3個」等。
+ result=result.replace(/(資金|食料|兵力)を(\d+)個?(?=\s*(?:獲得|消費|支払|捨て|得る|加える))/g,(_,name,n)=>icons[name]+'×'+n+'を');
+ result=result.replace(/(資金|食料|兵力)(\d+)個(?=を(?:獲得|消費|支払|捨て))/g,(_,name,n)=>icons[name]+'×'+n);
+ // 人数により変動する個数は、種類だけアイコン化し、数値は文章のまま残す。
+ result=result.replace(/(資金|食料|兵力)を(?=\d+人プレイなら)/g,(_,name)=>icons[name]+'を');
+ // 「資金・食料・兵力を1個ずつ」のような複数資源。
+ result=result.replace(/(?:資金|食料|兵力)(?:・(?:資金|食料|兵力))+/g,m=>m.replace(/資金|食料|兵力/g,n=>icons[n]));
+ // 「資金を獲得」等、数量なしの単純な表現。
+ result=result.replace(/(資金|食料|兵力)を(?=(?:獲得|消費|支払|捨て))/g,(_,name)=>icons[name]+'を');
+ return result;
+}
+function cardInfoSections(c){
+ let wrap=document.createElement('div');wrap.className='card-info-sections';
+ let items=[[c.type==='LEGEND'||c.tier?'獲得条件':'設置コスト',costTextForCard(c)],['VP',c.vp===null?'変動':String(c.vp??0)],['効果',cleanCardEffect(c)]];
+ for(let [name,value] of items){let row=document.createElement('div');row.className='card-info-row';let title=document.createElement('div');title.className='card-info-label';title.textContent=name;let body=document.createElement('div');body.className='card-info-value';body.textContent=name==='効果'?iconizeEffectText(value):value;row.append(title,body);wrap.appendChild(row)}
+ return wrap;
+}
+function showDiscardPile(){let m=q('#discardModal'),e=q('#discardList');e.innerHTML='';if(!discard.length){let x=document.createElement('div');x.className='muted';x.textContent='捨て札はありません。';e.appendChild(x)}else{discard.slice().reverse().forEach(c=>{let w=document.createElement('div');w.appendChild(card(c,1,false));let t=document.createElement('div');t.className='small';t.style.marginTop='3px';t.replaceChildren(cardInfoSections(c));w.appendChild(t);e.appendChild(w)})}m.classList.remove('hidden')}
+
+function deckEditorCard(base,selected,toggle){
+ let b=document.createElement('button');b.type='button';b.className='card deck-pick '+(selected?'on':'off');
+ let ph=document.createElement('div');ph.className='muted';ph.style.cssText='aspect-ratio:456/701;border:1px dashed #bbb;border-radius:6px;display:flex;align-items:center;justify-content:center;background:#fff;margin-bottom:7px;text-align:center';ph.textContent=base.image?'':'イラスト未設定';if(base.image){let img=document.createElement('img');img.src=base.image;img.className='cardimg';b.appendChild(img)}else b.appendChild(ph);
+ let n=document.createElement('strong');n.textContent=base.name;b.appendChild(n);
+ let m=document.createElement('div');m.className='small';m.textContent='VP：'+(base.vp||0);b.appendChild(m);
+ let ef=document.createElement('div');ef.className='small';ef.style.marginTop='5px';ef.textContent=base.effectText||effectText(base);b.appendChild(ef);
+ b.onclick=toggle;return b;
+}
+function openDeckEditor(){renderDeckEditor();refreshDeckSaveUI();q('#deckEditorModal').classList.remove('hidden')}
+function renderDeckEditor(){
+ let normal=NORMAL_BASE.filter(c=>c.implemented), lower=LEGEND_CATALOG.filter(c=>c.tier==='lower'), upper=LEGEND_CATALOG.filter(c=>c.tier==='upper');
+ function fill(gridId,countId,list,key){
+  let grid=q(gridId);grid.innerHTML='';let set=new Set(customDeck[key]);q(countId).textContent='採用 '+set.size+'種'+(key==='normalKeys'?'（'+set.size*4+'枚）':'');
+  list.forEach(c=>grid.appendChild(deckEditorCard(c,set.has(c.key||c.id),()=>{let id=c.key||c.id,arr=customDeck[key],i=arr.indexOf(id);if(i>=0)arr.splice(i,1);else arr.push(id);renderDeckEditor()})));
+ }
+ fill('#customNormalGrid','#customNormalCount',normal,'normalKeys');fill('#customLowerGrid','#customLowerCount',lower,'lowerLegendKeys');fill('#customUpperGrid','#customUpperCount',upper,'upperLegendKeys');
+}
+function renderMarket(){let g=groups(),e=q('#market');e.innerHTML='';if(selectedMarketKey&&!g.has(selectedMarketKey))selectedMarketKey=null;g.forEach((arr,key)=>{let wrap=document.createElement('div');let b=card(arr[0],arr.length,false);b.classList.add('selectable-card');if(key===selectedMarketKey)b.classList.add('selected');let readOnly=(onlineDebugMode||realOnlineMainMode)&&viewer!==turn;b.onclick=()=>{if(!readOnly&&unusedDice().length){selectedMarketKey=key;renderMarket()}openCardImage({src:resolvedContentImage(arr[0])||'',alt:arr[0].name},arr[0],'market')};wrap.appendChild(b);let acquire=document.createElement('button');acquire.type='button';acquire.className='secondary';acquire.textContent='獲得';acquire.style.margin='4px 2px 8px';acquire.disabled=readOnly||!unusedDice().length;acquire.onclick=()=>{if((onlineDebugMode||realOnlineMainMode)&&viewer!==turn||!unusedDice().length)return;selectedMarketKey=key;renderMarket();q('#markettake').scrollIntoView({behavior:'smooth',block:'center'});};wrap.appendChild(acquire);e.appendChild(wrap)});let take=q('#markettake');take.innerHTML='';let readOnlyMarket=(onlineDebugMode||realOnlineMainMode)&&viewer!==turn;if(readOnlyMarket)selectedMarketKey=null;if(!unusedDice().length)selectedMarketKey=null;let chosen=!readOnlyMarket&&selectedMarketKey&&g.get(selectedMarketKey);let title=document.createElement('div');title.className='market-take-title';title.textContent=readOnlyMarket?'相手ターン中：公開カードは確認のみできます':(chosen?'「'+chosen[0].name+(chosen.length>1?' ×'+chosen.length:'')+'」を獲得':'獲得したい公開カードをタップしてください');take.appendChild(title);if(chosen){let note=document.createElement('div');note.className='small';note.textContent='消費する未使用サイコロをタップ';take.appendChild(note);let choices=document.createElement('div');choices.className='market-dice-choices';unusedDice().forEach(d=>{let btn=document.createElement('button');btn.className='primary market-die-btn';btn.textContent='🎲'+d.value+' で獲得';btn.onclick=()=>takeMarket(selectedMarketKey,d.id);choices.appendChild(btn)});if(!unusedDice().length){let no=document.createElement('div');no.className='notice';no.textContent='使用できる未使用サイコロがありません。';choices.appendChild(no)}take.appendChild(choices)}q('#types').textContent=g.size;q('#marketcount').textContent=market.length;q('#deckcount').textContent=deck.length;q('#discardcount').textContent=discard.length;q('#breaddeckcount').textContent=breadDeck.length;q('#breaddiscardcount').textContent=breadDiscard.length}
+function openPlayerBoard(p,mode="board"){
+ let old=q('#playerBoardOverlay');if(old)old.remove();
+ let overlay=document.createElement('div');overlay.id='playerBoardOverlay';overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:99998;overflow:auto;padding:14px;box-sizing:border-box';
+ let panel=document.createElement('div');panel.style.cssText='max-width:760px;margin:12px auto;background:var(--panel,#fff);color:var(--text,#222);background:#fff;color:#222;border-radius:12px;padding:14px';
+ let heading=document.createElement('div');heading.className='row';let title=document.createElement('strong');title.textContent='P'+(p+1)+(mode==='hand'?' の手札内訳':mode==='installed'?' の設置済みカード':mode==='employees'?' の雇用キャラクター':mode==='vp'?' の勝利点':' の盤面');let close=document.createElement('button');close.textContent='閉じる';close.onclick=()=>overlay.remove();heading.append(title,close);panel.appendChild(heading);
+ let status=document.createElement('div');status.className='small';status.textContent='手札 '+totalHandCount(p)+'枚 / 設置済み '+installed[p].length+'枚 / 雇用 '+(employees[p]||[]).length+'人 / VP '+totalVP(p)+'点 / 資金 '+powers[p].y+' / 兵力 '+powers[p].r+' / 食料 '+powers[p].p+' / 命令書 '+breadHands[p].length+'枚 / 負債 '+(commandCounts[p]||0)+'枚';panel.appendChild(status);
+ function section(label){let h=document.createElement('h3');h.textContent=label;panel.appendChild(h);let area=document.createElement('div');area.style.cssText='display:flex;flex-wrap:wrap;gap:7px';panel.appendChild(area);return area}
+ if(mode==='hand'){
+  let area=section('手札の内訳');let data=[['通常・スタンダードカード',(hands[p]||[]).length],['命令書',(breadHands[p]||[]).length],['負債',commandCounts[p]||0]];
+  data.forEach(([label,n])=>{let item=document.createElement('div');item.className='actionblock';item.style.cssText='flex:1;min-width:90px;text-align:center';item.textContent=label+'：'+n+'枚';area.appendChild(item)});
+  let note=document.createElement('div');note.className='small';note.textContent='相手の手札のカード名・命令書の出目は非公開です。';panel.appendChild(note);
+ }else if(mode==='vp'){
+  let area=section('勝利点');let item=document.createElement('div');item.textContent='合計：'+totalVP(p)+'点';area.appendChild(item);
+  let note=document.createElement('div');note.className='small';note.textContent='設置済みカードの詳細は「設置済み」から確認できます。';panel.appendChild(note);
+ }else{
+  if(mode==='board'||mode==='installed'){
+   let field=section('設置済みカード');let cards=[...(installed[p]||[]),...(temporary[p]||[])];if(!cards.length)field.textContent='なし';cards.forEach(c=>{let tile=document.createElement('button');tile.type='button';tile.className='online-info-card';tile.style.cssText='padding:5px;min-width:115px;max-width:165px;flex:1 1 125px;text-align:left';let visual=card(c,1,false);visual.style.pointerEvents='none';tile.appendChild(visual);let detail=document.createElement('div');detail.className='small';detail.style.cssText='margin-top:5px;line-height:1.4';detail.appendChild(cardInfoSections(c));tile.appendChild(detail);tile.onclick=()=>openCardImage({src:resolvedContentImage(c)||'',alt:c.name},c,'installed');field.appendChild(tile)});
+  }
+  if(mode==='board'||mode==='employees'){
+   let emp=section('雇用キャラクター');if(!(employees[p]||[]).length)emp.textContent='なし';(employees[p]||[]).forEach(c=>{let btn=document.createElement('button');btn.className='secondary';btn.textContent=(c.rarity||'')+' '+c.name;btn.onclick=()=>{let old=emp.querySelector('.employee-detail');if(old)old.remove();let detail=document.createElement('div');detail.className='notice employee-detail';detail.style.width='100%';detail.textContent=c.name+'：'+(castEffectText(c)||'効果なし');emp.appendChild(detail)};emp.appendChild(btn)});
+  }
+ }
+ overlay.appendChild(panel);overlay.onclick=e=>{if(e.target===overlay)overlay.remove()};document.body.appendChild(overlay);
+}
+function showPlayerCharacter(p){let c=(window.KOKORYO_CHARACTER_DATA||CHARACTER_DATA)[charOf(p)]||{};let existing=q('#playerCharacterOverlay');if(existing)existing.remove();let shade=document.createElement('div');shade.id='playerCharacterOverlay';shade.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px';let pane=document.createElement('div');pane.style.cssText='max-width:460px;width:100%;background:white;color:#222;padding:18px;border-radius:12px';let portrait=document.createElement('div');portrait.className='lord-card-portrait';portrait.style.cssText='width:110px;height:140px;margin:auto';renderLordPortrait(portrait,charOf(p));let name=document.createElement('h3');name.textContent=(c.title||'')+' '+(c.name||'');let ability=document.createElement('p');ability.textContent='《'+(c.uniqueAbility||'能力なし')+'》'+abilityStackText(c.uniqueAbility)+' '+(characterAbilityText(c)||'');let close=document.createElement('button');close.textContent='閉じる';close.onclick=()=>shade.remove();pane.append(portrait,name,ability,close);shade.appendChild(pane);shade.onclick=e=>{if(e.target===shade)shade.remove()};document.body.appendChild(shade)}
+function renderPlayers(){
+ let ps=q('#finalplayers');ps.innerHTML='';
+ hands.forEach((h,p)=>{
+  let x=document.createElement('div');x.className='player '+(p===turn?'active':'');
+  let top=document.createElement('div');top.className='row';top.style.alignItems='center';
+  let avatar=document.createElement('div');avatar.className='lord-card-portrait';avatar.style.cssText='width:52px;height:65px;flex-shrink:0;cursor:pointer';renderLordPortrait(avatar,charOf(p));avatar.onclick=()=>showPlayerCharacter(p);top.appendChild(avatar);
+  let info=document.createElement('div');let label=document.createElement('button');label.className='secondary';label.textContent='P'+(p+1)+(realOnlineMainMode&&realPlayerName(p)?' '+realPlayerName(p):'');label.title='デバッグ時は視点を切り替え';label.onclick=()=>{if(onlineDebugMode&&!botMatchMode){viewer=p;renderGame()}else openPlayerBoard(p)};info.appendChild(label);let c=(window.KOKORYO_CHARACTER_DATA||CHARACTER_DATA)[charOf(p)]||{};let cname=document.createElement('div');cname.className='small';cname.textContent=c.name||'';info.appendChild(cname);top.appendChild(info);x.appendChild(top);
+  let summary=document.createElement('div');summary.style.cssText='display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;margin-top:8px';
+  [['手札',totalHandCount(p)+'枚'],['設置済み',installed[p].length+'枚'],['雇用',(employees[p]||[]).length+'人'],['VP',totalVP(p)+'点']].forEach(([key,value])=>{let btn=document.createElement('button');btn.type='button';btn.className='secondary';btn.style.cssText='padding:7px 2px;font-size:12px;min-width:0';btn.textContent=key+' '+value;btn.onclick=()=>openPlayerBoard(p,key==='手札'?'hand':key==='設置済み'?'installed':key==='雇用'?'employees':'vp');summary.appendChild(btn)});x.appendChild(summary);
+  ps.appendChild(x);
+ });
+}
+function addFieldCardPreview(parent,c,isTemp){
+ let b=document.createElement('button');b.type='button';b.className='secondary';b.style.margin='4px';b.style.textAlign='left';
+ b.textContent=c.name+(isTemp?'（仮設置）':'')+' ['+vpLabel(c,turn)+']';
+ b.onclick=()=>openCardImage({src:resolvedContentImage(c)||'',alt:c.name},c,'installed');parent.appendChild(b);
+}
+let pendingBreadAnyIndex=null,pendingResourceFrom=null;
+function renderConversionActions(){let nd=q('#normalconvertchoices');if(nd){nd.innerHTML='';unusedDice().forEach(d=>{let b=document.createElement('button');b.className='cost-choice';b.textContent='🎲'+d.value+' → '+cname(colorFor(d.value));b.onclick=()=>turnClockConvertNormalDie(d.id);nd.appendChild(b)});if(!unusedDice().length)nd.innerHTML='<span class="small">未使用のサイコロなし</span>'}let bc=q('#breadconvertchoices'),bh=q('#breadhand'),ac=q('#breadanychoices');if(bc){bc.innerHTML='';breadHands[turn].forEach((ord,i)=>{let b=document.createElement('button');b.className='cost-choice';b.textContent='📜'+breadLabel(ord)+(ord.value==='any'?'':' → '+cname(colorFor(ord.value)));b.onclick=()=>{if(ord.value==='any'){pendingBreadAnyIndex=i;renderConversionActions();renderCharacterAnyResourceConversion();return}let got=breadHands[turn].splice(i,1)[0];breadDiscard.push(got);recycleBreadIfEmpty();let col=colorFor(got.value);gainResource(turn,col,1,'dieConvert');playLogAction('resource_conversion',{method:'command',order:got.value,to:col,gained:1});addCommandUndo({kind:'breadConvert',order:got,color:col});pendingBreadAnyIndex=null;renderGame()};bc.appendChild(b)});if(!breadHands[turn].length)bc.innerHTML='<span class="small">命令書なし</span>';bh.textContent=breadHands[turn].length?'所持：'+breadHands[turn].map(b=>'📜'+breadLabel(b)).join(' / '):'所持なし';ac.innerHTML='';if(pendingBreadAnyIndex!==null&&breadHands[turn][pendingBreadAnyIndex]?.value==='any'){ac.classList.remove('hidden');[['y','💰 資金'],['p','🍖 食料'],['r','⚔️ 兵力']].forEach(([c,label])=>{let b=document.createElement('button');b.className='cost-choice';b.textContent=label;b.onclick=()=>{let got=breadHands[turn].splice(pendingBreadAnyIndex,1)[0];breadDiscard.push(got);recycleBreadIfEmpty();gainResource(turn,c,1,'dieConvert');playLogAction('resource_conversion',{method:'command',order:got.value,to:c,gained:1});addCommandUndo({kind:'breadConvert',order:got,color:c});pendingBreadAnyIndex=null;renderGame()};ac.appendChild(b)})}else{pendingBreadAnyIndex=null;ac.classList.add('hidden')}}}
+function renderCharacterAnyResourceConversion(){
+ let box=q('#normalconvertchoices');if(!box||!isViewingOwnTurn())return;
+ let amount=1+stackedNumericEffect(turn,'dieResourceBonus')+(copiedAbility==='神の恩恵'?1:0);if(!hasGodBlessingForTurn())return;
+ let unused=unusedDice();if(!unused.length)return;
+ let row=document.createElement('div');row.className='row';row.style.marginTop='6px';
+ let s=document.createElement('select');unused.forEach(d=>{let o=document.createElement('option');o.value=d.id;o.textContent='🎲'+d.value;s.appendChild(o)});row.appendChild(s);
+ [['y','💰 資金'],['p','🍖 食料'],['r','⚔️ 兵力']].forEach(([c,label])=>{let b=document.createElement('button');b.className='cost-choice';b.textContent='→ '+label+'×'+amount;b.onclick=()=>{let used=useDie(+s.value);if(!used)return;gainResource(turn,c,amount,'dieConvert');addCommandUndo({kind:'dieConvert',dieId:used.id,dieValue:used.value,color:c,amount});renderGame()};row.appendChild(b)});
+ box.appendChild(row);
+}
+
+
+function openHireDiceModal(){
+ if(!isViewingOwnTurn())return alert('相手ターン中は雇用できません。');
+ if(hiredThisTurn)return alert('雇用は1ターンに1回までです。');
+ if((employees[turn]||[]).length>=effectiveHireLimit())return alert('雇用枠が上限です。');
+ if(isHireFree())return hireEmployee(null);
+ if(powers[turn].y<5)return alert('雇用には資金5が必要です。');
+ let avail=unusedDice(),box=q('#hireDiceChoices');box.innerHTML='';
+ if(!avail.length)return alert('使用できる未使用のサイコロがありません。');
+ avail.forEach(d=>{let b=document.createElement('button');b.type='button';b.className='secondary';b.textContent='🎲 '+d.value;b.onclick=()=>{q('#hireDiceModal').classList.add('hidden');hireEmployee(d.id)};box.appendChild(b)});
+ q('#hireDiceModal').classList.remove('hidden');
+}
+function openEndTurnConfirm(){
+ let avail=unusedDice();let info=q('#endTurnConfirmInfo');
+ let items=[];
+ if(avail.length)items.push('未使用サイコロ：'+avail.length+'個');
+ if(!hiredThisTurn&&(employees[turn]||[]).length<effectiveHireLimit()&&(isHireFree()||(powers[turn].y>=5&&avail.length)))items.push('雇用：まだ実行できます');
+ items.push('手札：'+totalHandCount(turn)+' / 上限'+handLimit(turn)+'枚');
+ info.innerHTML=items.map(x=>'<div>・'+x+'</div>').join('');
+ q('#endTurnConfirmModal').classList.remove('hidden');
+}
+function invisibleHandCount(p=turn){let lord=CHARACTER_DATA[charOf(p)]||{};return (lord.invisibleHand||0)+(employeeUniqueAbilitiesEnabled(p)?(employees[p]||[]):[]).reduce((n,e)=>n+(e.invisibleHand||0),0)+(p===turn&&copiedAbility==='神の見えざる手'?1:0)}
+function useInvisibleHand(handIndex,color){let n=invisibleHandCount();if(n<=0)return;let c=hands[turn][handIndex];if(!c)return alert('捨てる手札を選んでください。');discard.push(hands[turn].splice(handIndex,1)[0]);gainResource(turn,color,n,'effect');triggerNotices.push('《神の見えざる手》：「'+c.name+'」を捨て、'+cname(color)+'を'+n+'個獲得しました。');renderGame()}
+function renderInvisibleHandActions(){let panel=q('#invisibleHandPanel'),box=q('#invisibleHandActions');if(!panel||!box)return;let n=invisibleHandCount();panel.style.display=n?'block':'none';box.innerHTML='';if(!n)return;if(!hands[turn].length){box.textContent='変換できる通常手札がありません。';return}let sel=document.createElement('select');hands[turn].forEach((c,i)=>{let o=document.createElement('option');o.value=i;o.textContent=c.name;sel.appendChild(o)});let row=document.createElement('div');row.className='cost-picker';[['y','💰 資金'],['p','🍖 食料'],['r','⚔️ 兵力']].forEach(([col,label])=>{let b=document.createElement('button');b.className='cost-choice';b.textContent=label+' +'+n;b.onclick=()=>useInvisibleHand(+sel.value,col);row.appendChild(b)});box.append('捨てる通常手札 ',sel,row)}
+function renderResourceExchange(){let box=q('#resourceexchangechoices');if(!box)return;box.innerHTML='';let p=powers[turn],lord=CHARACTER_DATA[charOf(turn)]||{},staff=employeeUniqueAbilitiesEnabled(turn)?(employees[turn]||[]):[],rate=(lord.exchangeRate===1||staff.some(e=>e.exchangeRate===1||e.uniqueAbility==='等価交換')||copiedAbility==='等価交換')?1:2;if(!pendingResourceFrom){let lab=document.createElement('div');lab.className='small';lab.textContent=rate+'個支払う資源'+(rate===1?'（《等価交換》）':'');box.appendChild(lab);let row=document.createElement('div');row.className='cost-picker';[['y','💰 資金'],['p','🍖 食料'],['r','⚔️ 兵力']].forEach(([c,label])=>{let b=document.createElement('button');b.className='cost-choice';b.textContent=label+' ×'+rate;b.disabled=p[c]<rate;b.onclick=()=>{pendingResourceFrom=c;renderResourceExchange()};row.appendChild(b)});box.appendChild(row)}else{let lab=document.createElement('div');lab.innerHTML='<strong>'+cname(pendingResourceFrom)+rate+'個</strong>を支払い → 受け取る資源を選択';box.appendChild(lab);let row=document.createElement('div');row.className='cost-picker';[['y','💰 資金'],['p','🍖 食料'],['r','⚔️ 兵力']].filter(([c])=>c!==pendingResourceFrom).forEach(([c,label])=>{let b=document.createElement('button');b.className='primary';b.textContent=label+' +1';b.onclick=()=>{let f=pendingResourceFrom;if(powers[turn][f]<rate){pendingResourceFrom=null;return renderGame()}powers[turn][f]-=rate;gainResource(turn,c,1,'exchange');playLogAction('resource_exchange',{from:f,to:c,spent:rate,gained:1});addCommandUndo({kind:'resourceExchange',from:f,to:c,amount:rate});pendingResourceFrom=null;renderGame()};row.appendChild(b)});let cancel=document.createElement('button');cancel.className='secondary';cancel.textContent='戻る';cancel.onclick=()=>{pendingResourceFrom=null;renderResourceExchange()};row.appendChild(cancel);box.appendChild(row)}}
+function takeMarket(key,dieId){let avail=unusedDice();if(!avail.length){selectedMarketKey=null;renderMarket();return;}if(!key||!groups().has(key))return alert('獲得する公開カードを選んでください。');if(!useDie(dieId))return alert('使用する未使用サイコロを選んでください。');let got=market.filter(c=>c.key===key);market=market.filter(c=>c.key!==key);hands[turn].push(...got);addDialog('P'+(turn+1)+'が公開場から「'+got[0].name+'」'+(got.length>1?'×'+got.length:'')+'を獲得しました。');marketUndoHistory.push({id:Date.now()+Math.random(),owner:turn,key,cards:[...got],dieId:+dieId,blocked:false});selectedMarketKey=null;renderGame()}
+q('#coroconvert').onclick=()=>{if(charOf(turn)!=='coronelia')return;let id=q('#corodie').value,d=useDie(id);if(!d)return alert('使用できるサイコロがありません。');gainResource(turn,q('#corocolor').value,3,'effect');renderGame()};
+q('#closeHireDiceModal').onclick=()=>q('#hireDiceModal').classList.add('hidden');q('#hireDiceModal').onclick=e=>{if(e.target.id==='hireDiceModal')q('#hireDiceModal').classList.add('hidden')};q('#cancelEndTurn').onclick=()=>q('#endTurnConfirmModal').classList.add('hidden');q('#confirmEndTurn').onclick=()=>{q('#endTurnConfirmModal').classList.add('hidden');finishTurn()};q('#endTurnConfirmModal').onclick=e=>{if(e.target.id==='endTurnConfirmModal')q('#endTurnConfirmModal').classList.add('hidden')};
+q('#showDraftOwned').onclick=showDraftOwnedCards;q('#closeDraftOwned').onclick=()=>q('#draftOwnedModal').classList.add('hidden');q('#draftOwnedModal').onclick=e=>{if(e.target.id==='draftOwnedModal')q('#draftOwnedModal').classList.add('hidden')};q('#charability').onclick=showCharacterAbility;q('#closeAbilityModal').onclick=()=>q('#abilityModal').classList.add('hidden');q('#abilityModal').onclick=e=>{if(e.target.id==='abilityModal')q('#abilityModal').classList.add('hidden')};q('#showDialogLog').onclick=showDialogLog;q('#closeDialogLog').onclick=()=>q('#dialogLogModal').classList.add('hidden');q('#dialogLogModal').onclick=e=>{if(e.target.id==='dialogLogModal')q('#dialogLogModal').classList.add('hidden')};q('#showActiveRules').onclick=showActiveRules;q('#closeActiveRules').onclick=()=>q('#activeRulesModal').classList.add('hidden');q('#activeRulesModal').onclick=e=>{if(e.target.id==='activeRulesModal')q('#activeRulesModal').classList.add('hidden')};q('#showHireCardList').onclick=showHireCardList;q('#closeHireCardList').onclick=()=>q('#hireCardListModal').classList.add('hidden');q('#hireCardListModal').onclick=e=>{if(e.target.id==='hireCardListModal')q('#hireCardListModal').classList.add('hidden')};q('#showCardList').onclick=showCardList;q('#closeCardList').onclick=()=>q('#cardListModal').classList.add('hidden');q('#cardListModal').onclick=e=>{if(e.target.id==='cardListModal')q('#cardListModal').classList.add('hidden')};q('#showDiscard').onclick=showDiscardPile;q('#closeDiscard').onclick=()=>q('#discardModal').classList.add('hidden');q('#discardModal').onclick=e=>{if(e.target.id==='discardModal')q('#discardModal').classList.add('hidden')};q('#closeCardDetail').onclick=()=>q('#cardDetailModal').classList.add('hidden');q('#cardDetailInstall').onclick=openSelectedInstall;q('#closeInstallModal').onclick=()=>q('#installModal').classList.add('hidden');q('#showHand').onclick=showHandCards;q('#closeHand').onclick=()=>q('#handModal').classList.add('hidden');q('#handModal').onclick=e=>{if(e.target.id==='handModal')q('#handModal').classList.add('hidden')};
+q('#refresh').onclick=()=>{let p=powers[turn];if(p.y<1||p.r<1||p.p<1)return alert('資金・兵力・食料が1個ずつ必要です。');p.y--;p.r--;p.p--;blockAllMarketUndo('市場入れ替えを行いました。');discard.push(...market);market=[];refillTo8();renderGame()};
+function handLimit(p){return gameSettings.handLimit+(installed[p].filter(c=>c.special==='warehouse').length+temporary[p].filter(c=>c.special==='warehouse').length)*2}function finishTurn(){if(pendingParkPlayers.length)return alert('ナーロッパランドの公開カード選択を全員分終えてください。');if(handLimitNeedsDiscard(turn)){showHandLimit();return}completeEnd()}
+function showHandLimit(){let box=q('#limit');box.classList.remove('hidden');let nonRice=hands[turn].length+breadHands[turn].length;let lim=handLimit(turn),excess=totalHandCount(turn)-lim;if(excess<=0||(depressionProtectsDebtAtHandLimit()&&nonRice===0)){completeEnd();return}if(nonRice===0&&!depressionProtectsDebtAtHandLimit()&&!depressionDebtLocked(turn)){let n=Math.min(excess,commandCounts[turn]);commandCounts[turn]-=n;komePlace+=n;if(totalHandCount(turn)<=lim){completeEnd();return}}box.innerHTML='<strong>手札上限：'+lim+'枚</strong><div class="small">現在'+totalHandCount(turn)+'枚。'+(depressionProtectsDebtAtHandLimit()?'《世界恐慌》の効果中は負債を手札上限処理で捨てません。負債以外のカードをすべて捨てた後は、上限超過のままターンを終了できます。':'上限を超える場合、負債以外のカードから捨ててください。負債以外をすべて捨てても超過する場合のみ、超過分の負債を負債置き場へ戻します。')+'</div>';hands[turn].forEach((c,i)=>{let b=document.createElement('button');b.className='secondary';b.style.margin='5px';b.textContent=c.name;b.onclick=()=>{discard.push(hands[turn].splice(i,1)[0]);showHandLimit()};box.appendChild(b)});breadHands[turn].forEach((c,i)=>{let b=document.createElement('button');b.className='secondary';b.style.margin='5px';b.textContent='📜 命令書 '+breadLabel(c);b.onclick=()=>{breadDiscard.push(breadHands[turn].splice(i,1)[0]);recycleBreadIfEmpty();showHandLimit()};box.appendChild(b)})}
+function turnClockOriginalCompleteEnd(){playLogChanges('turn_end');playLogEvent('turn_end',{player:turn+1},true);
+ runInstalledPackHooks('turnEnd',turn);
+ runRuleHook('turnEnd',{player:turn});
+ dice=[];if(temporary[turn].length){installed[turn].push(...temporary[turn]);temporary[turn]=[]}refillTo8();
+ logNormalCardAudit('turn_end_finalized');
+ if(endgameStarter!==null&&turn!==endgameStarter){endgameRemaining--;let box=q('#gameover');if(endgameRemaining>0){box.className='notice endgame-progress';box.innerHTML='<strong>⚑ ゲーム終了処理中</strong><div>P'+(endgameStarter+1)+'が'+gameSettings.winVP+'VP到達｜残り最終ターン：'+endgameRemaining+'人</div>';}if(endgameRemaining<=0){finishGame();if(realOnlineMainMode)broadcastRealGameFinished(turn);return}}
+ turn=(turn+1)%playerCount;
+ // オンラインデバッグでは次プレイヤーの開始時判定より先に操作視点を同期する。
+ // 実オンライン対戦のviewerは各接続者に固定するため変更しない。
+ if(onlineDebugMode&&!realOnlineMainMode&&!botMatchMode)viewer=turn;
+ beginTurn();if(botMatchMode)queueBotTurn();
+ // 手番が変わった後でも、直前の操作プレイヤーから確実に状態を送信する。
+ if(realOnlineMainMode){const previousPlayer=(turn+playerCount-1)%playerCount;broadcastRealMainState(previousPlayer)}
+}
+function debtFinalVPPerCard(p){let vals=specialOwners(cfg=>typeof cfg.debt?.finalVPPerDebt==='number').map(x=>x.cfg.debt.finalVPPerDebt),base=vals.length?vals[vals.length-1]:-1;if(depressionDebtLocked(p))return 0;if(hasEraSpecial(p,'skyscraper')&&base<0)return Math.abs(base);return base}
+function debtRepayMultiplier(){let vals=specialOwners(cfg=>+cfg.debt?.repayMultiplier>0).map(x=>+x.cfg.debt.repayMultiplier);return vals.length?Math.max(...vals):1}
+function resetGameEndState(){
+ turnClockReset();
+ endgameStarter=null;endgameRemaining=0;gameEnded=false;
+ let box=q('#gameover');if(box){box.className='notice hidden';box.innerHTML=''}
+ let end=q('#endturn');if(end)end.disabled=false;
+ let reroll=q('#reroll');if(reroll)reroll.disabled=false;
+}
+function finishGame(){
+ turnClockStop();playLogChanges('game_finish');playLogEvent('game_finished',{},true);
+ gameEnded=true;let scores=Array.from({length:playerCount},(_,p)=>({p,vp:totalVP(p)+((commandCounts[p]||0)*debtFinalVPPerCard(p)),cards:allFieldCards(p).length}));
+ let bestVP=Math.max(...scores.map(x=>x.vp)),top=scores.filter(x=>x.vp===bestVP),bestCards=Math.max(...top.map(x=>x.cards)),winners=top.filter(x=>x.cards===bestCards);
+ renderSharedEndgameStatus();
+ q('#endturn').disabled=true;q('#reroll').disabled=true;renderPlayers()
+}
+
+// Ver.0.3.163: ローカルプレイログ。認証情報や入力文字列は保存しない。
+const PLAYLOG_VERSION='1.2';
+let playLogEvents=[],playLogStart=new Date().toISOString(),playLogLastState=null,playLogTurnSerial=0;
+function playLogCard(c){return c?{id:String(c.key||c.id||''),name:String(c.name||''),packId:String(c.packId||'base')}:null}
+function playLogCards(list){return (list||[]).map(playLogCard)}
+
+// ターン終了時の通常カード枚数監査。カード種別ごとの初期枚数を基準に全領域を照合する。
+let normalCardAuditBaseline=null;
+function normalCardAuditInventory(){
+ const zones={deck:deck||[],market:market||[],discard:discard||[]};
+ (hands||[]).forEach((a,i)=>zones['P'+(i+1)+'_hand']=a||[]);
+ (installed||[]).forEach((a,i)=>zones['P'+(i+1)+'_installed']=a||[]);
+ (temporary||[]).forEach((a,i)=>zones['P'+(i+1)+'_temporary']=a||[]);
+ // ドラフト中に残ったカードも監査対象にする（通常対戦開始後は山札へ移動済み）。
+ const counts={},locations={},zoneTotals={};
+ for(const [zone,cards] of Object.entries(zones)){
+  zoneTotals[zone]=0;
+  for(const c of cards){if(!c||!c.key||c.tier==='lower'||c.tier==='upper')continue;
+   const key=String(c.key);counts[key]=(counts[key]||0)+1;
+   (locations[key]??={})[zone]=((locations[key]||{})[zone]||0)+1;
+   zoneTotals[zone]++;
+  }
+ }
+ return {counts,locations,zoneTotals,total:Object.values(counts).reduce((a,b)=>a+b,0)};
+}
+function resetNormalCardAudit(){normalCardAuditBaseline=normalCardAuditInventory().counts;}
+function logNormalCardAudit(stage){
+ try{
+  const current=normalCardAuditInventory();
+  if(!normalCardAuditBaseline){playLogEvent('normal_card_audit',{stage,status:'baseline_missing',currentTotal:current.total,zoneTotals:current.zoneTotals});return;}
+  const differences=[];
+  for(const key of new Set([...Object.keys(normalCardAuditBaseline),...Object.keys(current.counts)])){
+   const expected=normalCardAuditBaseline[key]||0,actual=current.counts[key]||0;
+   if(expected!==actual)differences.push({id:key,expected,actual,difference:actual-expected,locations:current.locations[key]||{}});
+  }
+  const expectedTotal=Object.values(normalCardAuditBaseline).reduce((a,b)=>a+b,0);
+  playLogEvent('normal_card_audit',{stage,status:differences.length?'mismatch':'ok',expectedTotal,actualTotal:current.total,zoneTotals:current.zoneTotals,differences});
+ }catch(e){playLogEvent('normal_card_audit_error',{stage,message:String(e?.message||e)})}
+}
+function playLogCharacter(p){
+ const id=typeof charOf==='function'?charOf(p):characters?.[p];
+ const c=CHARACTER_DATA[id]||{};
+ const sel=(typeof onlineCharSelections!=='undefined'&&onlineCharSelections?.[p])||null;
+ return {id:String(id||''),name:String(c.name||''),familyId:String(sel?.familyId||''),versionId:String(sel?.versionId||'')};
+}
+function playLogAction(type,detail={}){playLogEvent(type,{player:turn+1,...detail})}
+function playLogSnapshot(){
+ const n=Math.max(0,Math.min(6,playerCount||0));
+ return {turn:turn+1,round:round+1,gameEnded:!!gameEnded,botMatch:!!botMatchMode,
+  players:Array.from({length:n},(_,p)=>({player:p+1,bot:!!(botMatchMode&&botIsPlayer(p)),character:playLogCharacter(p),vp:totalVP(p),resources:{...(powers[p]||{})},hand:playLogCards(hands[p]),commands:(breadHands[p]||[]).map(x=>({order:x.order??x.value??null})),debt:commandCounts[p]||0,installed:playLogCards(installed[p]),temporary:playLogCards(temporary[p]),employees:(employees[p]||[]).map(x=>({id:String(x?.id||x?.key||''),name:String(x?.name||'')}))})),
+  dice:(dice||[]).map(x=>({id:x.id,value:x.value,used:!!x.used})),market:playLogCards(market),legends:(legends||[]).map(x=>({id:String(x.id||x.key||''),name:x.name,taken:!!x.taken,unlocked:!!x.unlocked})),deckRemaining:deck.length,discardCount:discard.length,pendingParkPlayers:[...(pendingParkPlayers||[])].map(x=>x+1)};
+}
+function playLogEvent(type,detail={},snapshot=false){
+ try{const e={at:new Date().toISOString(),type,turn:turn+1,detail};if(snapshot)e.state=playLogSnapshot();playLogEvents.push(e);if(playLogEvents.length>15000)playLogEvents.splice(0,1000)}catch(_){/* ログの失敗でゲームを止めない */}
+}
+function playLogReset(){playLogEvents=[];playLogStart=new Date().toISOString();playLogTurnSerial=0;playLogLastState=null;playLogEvent('game_initialized',{},true)}
+function playLogChanges(reason){
+ try{const next=playLogSnapshot(),prev=playLogLastState;
+  if(prev){for(let p=0;p<next.players.length;p++){
+   const a=prev.players[p],b=next.players[p];if(!a||!b)continue;
+   const changes={};for(const k of ['character','vp','resources','hand','commands','debt','installed','temporary','employees'])if(JSON.stringify(a[k])!==JSON.stringify(b[k]))changes[k]={before:a[k],after:b[k]};
+   if(Object.keys(changes).length)playLogEvent('player_state_change',{player:p+1,reason,changes});
+  }
+  for(const k of ['dice','market','legends','pendingParkPlayers'])if(JSON.stringify(prev[k])!==JSON.stringify(next[k]))playLogEvent('board_state_change',{field:k,reason,before:prev[k],after:next[k]});
+  }
+  playLogLastState=next;
+ }catch(_){/* ログの失敗でゲームを止めない */}
+}
+function playLogExport(){
+ try{playLogChanges('export');const data={schema:'kokoryo-playlog',schemaVersion:PLAYLOG_VERSION,gameVersion:'0.3.221',startedAt:playLogStart,exportedAt:new Date().toISOString(),finished:!!gameEnded,settings:{deckId:gameSettings.deckId,deckName:activeDeckConfig(gameSettings.deckId)?.name||gameSettings.deckId,winVP:gameSettings.winVP,playerCount,enabledPacks:[...(gameSettings.enabledPacks||[])],enabledRulePacks:[...(gameSettings.enabledRulePacks||[])],activeRules:(gameSettings.activeRuleCards||[]).map(x=>x.id||x.key||''),randomizerEnabled:!!gameSettings.randomizerEnabled,randomizerCount:gameSettings.randomizerCount,deckComposition:(typeof normalCardsForDeck==='function'?normalCardsForDeck(gameSettings.deckId):[]).map(playLogCard)},events:playLogEvents,latestState:playLogSnapshot()};
+ const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='kokoryo_playlog_0.3.221_'+new Date().toISOString().replace(/[:.]/g,'-')+'.json';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);
+ }catch(err){console.error('Playlog export error',err);alert('プレイログの保存に失敗しました。')}
+}
+function playLogDownloadButton(){const b=document.createElement('button');b.type='button';b.className='secondary';b.textContent='プレイログを保存';b.onclick=playLogExport;return b}
+window.addEventListener('error',e=>playLogEvent('javascript_error',{message:String(e.message||''),file:(e.filename||'').split('/').pop(),line:e.lineno,column:e.colno},true));
+window.addEventListener('unhandledrejection',e=>playLogEvent('promise_error',{message:String(e.reason?.message||e.reason||'').slice(0,500)},true));
+// クリックの対象名・入力内容は記録せず、操作後の状態変化のみ記録する。
+document.addEventListener('click',e=>{const el=e.target.closest('button');if(!el||el.textContent==='プレイログを保存')return;const action=(el.id||'').slice(0,80);setTimeout(()=>playLogChanges(action||'game_action'),0)},true);
+
+function setupCompactUI(){
+ const panel=q('#freeActionsPanel'); if(!panel||panel.dataset.compact)return; panel.dataset.compact='1'; panel.classList.add('action-drawer');
+ const title=panel.querySelector(':scope > strong'); if(title) title.style.display='none';
+ const blocks=[...panel.querySelectorAll(':scope > .actionblock')];
+ const undoBlock=document.createElement('div');undoBlock.className='actionblock';undoBlock.innerHTML='<strong>戻す</strong><div class="small">市場が変わっていない間だけ、戻したい操作を個別に選べます。</div><div id="undoactions" style="margin-top:6px"></div>';panel.appendChild(undoBlock);
+ // 画面に常設する主要情報・行動。旧まじきんキャラ系はUIから退避する。
+ const main=document.createElement('div');main.className='panel';main.id='mainActionPanel';main.innerHTML='<strong>自分の領地・手札</strong><div class="small" style="margin-top:4px">頻繁に使う行動はここから直接操作します。</div>';
+ [1,9,11,12].forEach(i=>{if(blocks[i])main.appendChild(blocks[i])});
+ const legendPanel=q('#legendArea')?.closest('.panel');if(legendPanel)legendPanel.parentElement.insertBefore(main,legendPanel);
+ [3,7,8].forEach(i=>{if(blocks[i])blocks[i].style.display='none'});
+ const head=document.createElement('div'); head.className='drawer-head'; head.innerHTML='<strong>コマンド</strong>';
+ const close=document.createElement('button'); close.className='secondary drawer-close'; close.textContent='閉じる'; close.onclick=()=>panel.classList.remove('open'); head.appendChild(close);
+ const tabs=document.createElement('div'); tabs.className='drawer-tabs';
+ const groups=[{label:'変換',idx:[0,2]},{label:'資源交換',idx:[5]},{label:'市場入れ替え',idx:[6]},{label:'戻す',idx:[],extra:undoBlock},{label:'プレイログ',idx:[],extra:(()=>{const d=document.createElement('div');d.className='actionblock';d.appendChild(playLogDownloadButton());return d})()},{label:'デバッグ',idx:[10]}];
+ function showGroup(n){groups.forEach((g,gi)=>{g.idx.forEach(i=>{if(blocks[i])blocks[i].style.display=gi===n?'block':'none'});if(g.extra)g.extra.style.display=gi===n?'block':'none'});}
+ groups.forEach((g,i)=>{const bt=document.createElement('button');bt.className='secondary';bt.textContent=g.label;if(g.label==='デバッグ'){bt.id='debugCommandTab';bt.style.display='none'}bt.onclick=()=>showGroup(i);tabs.appendChild(bt)});
+ panel.insertBefore(tabs,panel.firstChild); panel.insertBefore(head,panel.firstChild); showGroup(0);
+ const end=q('#endturn'); if(end&&end.parentElement){const open=document.createElement('button');open.className='game-action-btn main-turn-btn';open.textContent='コマンド';open.onclick=()=>panel.classList.add('open');end.parentElement.insertBefore(open,end);}
+}
+setupCompactUI();playLogReset();
+q('#playerCount').addEventListener('change',renderCharacterSelects);renderPlayerCountChoices();renderCharacterSelects();refreshSetupDeckPreset();fillLegendSlotSelect('#settingLegendSlots','standard1',3);q('#deckPreset')?.addEventListener('change',()=>{q('#editDeck').disabled=q('#deckPreset').value!=='custom';fillLegendSlotSelect('#settingLegendSlots',q('#deckPreset').value,gameSettings.legendSlots)});
+q('#deckPreset').addEventListener('change',()=>{q('#editDeck').disabled=q('#deckPreset').value!=='custom'});
+function forceRealOnlineLobbyScreen(){
+ resetGameEndState();
+ // Ver.3.22: ロビー復帰は各画面の状態に依存させず、表示と進行状態を一括で初期化する。
+ realLobbyPhase='lobby';
+ realMainRoster=[];
+ realOnlineMainMode=false;realOnlineCharacterMode=false;realOnlineDraftMode=false;realOnlineResourceMode=false;
+ realMainStarted=false;realDraftState=null;realResourceState=null;realDraftInitSent=false;realResourceInitSent=false;
+ realLobbyCharSelection=null;realLobbyCharReady=false;
+ q('#game')?.classList.add('hidden');q('#setup')?.classList.add('hidden');q('#draft')?.classList.add('hidden');q('#gamestartsetup')?.classList.add('hidden');
+ q('#onlineCharacterScreen')?.classList.add('hidden');q('#onlineDraftScreen')?.classList.add('hidden');q('#onlineResourceScreen')?.classList.add('hidden');
+ q('#mainApp')?.classList.add('entry-locked');q('#entryScreen')?.classList.add('hidden');q('#onlineDebugLobby')?.classList.add('hidden');
+ q('#onlineRealLobby')?.classList.remove('hidden');
+ saveRealOnlineResume();renderRealLobby();
+}
+async function returnRealOnlineToLobby(){
+ if(!isRealLobbyHost())return;
+ // 専用イベントを先に送る。phase_change と違い、受信側の現在phaseに関係なく必ず復帰処理を実行する。
+ try{if(realLobbyChannel)await realLobbyChannel.send({type:'broadcast',event:'return_lobby',payload:{hostId:realLobbyHostId,nonce:Date.now()}})}catch(e){console.error(e)}
+ forceRealOnlineLobbyScreen();
+ try{await trackRealLobbyPresence()}catch(e){console.error(e)}
+}
+async function confirmReturnToLobby(){
+ // 終了画面ではゲストもロビー復帰を要求できる。全員の画面遷移はHOSTが同期する。
+ if(realOnlineMainMode&&gameEnded&&realLobbyChannel&&realLobbyRoomKey&&!isRealLobbyHost()){
+  if(!turnClockConfirm('全員をロビーに戻すようHOSTへ要求します。よろしいですか？'))return;
+  try{await realLobbyChannel.send({type:'broadcast',event:'endgame_return_request',payload:{clientId:realLobbyClientId}})}
+  catch(e){console.error(e);alert('ロビー復帰の要求を送信できませんでした。')}
+  return;
+ }
+ if(!turnClockConfirm('ロビーに戻ります。本当によろしいですか？'))return;
+ // 実オンラインでは画面別の mode フラグではなく、ルーム接続そのものを基準に判定する。
+ // これによりキャラ選択・ドラフト・資源選択・メインのどこからでも戻れる。
+ if(realLobbyChannel&&realLobbyRoomKey){
+  if(!isRealLobbyHost()){
+   alert('ロビーへ戻す操作はHOSTのみ行えます。退出する場合は退出操作を使用してください。');
+   return;
+  }
+  await returnRealOnlineToLobby();
+  return;
+ }
+ if(onlineDebugMode)returnOnlineDebugToLobby();
+}
+function returnOnlineDebugToLobby(){resetGameEndState();q('#game').classList.add('hidden');q('#setup').classList.add('hidden');q('#draft').classList.add('hidden');q('#gamestartsetup').classList.add('hidden');q('#onlineCharacterScreen')?.classList.add('hidden');q('#onlineDraftScreen')?.classList.add('hidden');q('#onlineResourceScreen')?.classList.add('hidden');onlineCharSelections=Array(6).fill(null);onlineCharActivePlayer=0;onlineCharPending=null;onlineDraftPacks=[];onlineDraftHands=[];onlineDraftSelected=[];onlineDraftRound=0;onlineDraftActivePlayer=0;onlineDraftPendingIndex=null;onlineResourceChoices=[];onlineResourceConfirmed=[];onlineResourceActivePlayer=0;q('#onlineDebugLobby')?.classList.remove('hidden');q('#status').textContent='オンライン版テスト';renderOnlineDebugLobby()}
+q('#editDeck').onclick=openDeckEditor;const closeDeckEditor=()=>{
+ q('#deckEditorModal').classList.add('hidden');
+ if(onlineDebugMode&&gameSettings.deckId==='custom'){
+  let name=(q('#deckSaveName')?.value||'').trim();
+  if(name&&getSavedDecks()[name]){let sel=q('#onlineDebugDeckPreset');if(sel)sel.dataset.selectedValue='saved:'+name}
+  populateOnlineDebugDeckPreset();
+ }
+ if(realLobbyChannel&&isRealLobbyHost()&&realOnlineDeckId==='custom')broadcastRealDeckConfig()
+};q('#deckEditorClose').onclick=closeDeckEditor;q('#deckEditorCloseTop').onclick=closeDeckEditor;q('#deckEditorModal').onclick=e=>{if(e.target===q('#deckEditorModal'))closeDeckEditor()};document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!q('#deckEditorModal').classList.contains('hidden'))closeDeckEditor()});q('#deckSaveBtn').onclick=saveCustomDeck;q('#deckLoadBtn').onclick=loadCustomDeck;q('#deckDeleteBtn').onclick=deleteCustomDeck;q('#mainReturnLobby').onclick=confirmReturnToLobby;q('#reroll').onclick=beginTurn;q('#endturn').onclick=openEndTurnConfirm;q('#start').onclick=()=>{if(onlineDebugMode)return;if(q('#setup').classList.contains('hidden')){q('#setup').classList.remove('hidden');q('#draft').classList.add('hidden');q('#gamestartsetup').classList.add('hidden');q('#game').classList.add('hidden');q('#start').textContent='ゲーム開始';q('#status').textContent='開始設定を選んでください。'}else start()};
+function openCardImage(img,c=null,context='view',index=null){
+ const src=img?.src||'',title=c?.name||img?.alt||'カード詳細';
+ const modal=q('#imgmodal');
+ if(!modal.classList.contains('hidden')&&modal.dataset.cardKey===(c?.key||title)&&modal.dataset.context===context){modal.classList.add('hidden');return}
+ modal.dataset.cardKey=c?.key||title;modal.dataset.context=context;
+ q('#modalimg').src=src;q('#modalimg').alt=title;q('#modalimg').classList.toggle('hidden',!src);
+ q('#expandedCardTitle').textContent=title;
+ const info=q('#expandedCardInfo');info.replaceChildren();
+ if(c)info.appendChild(cardInfoSections(c));
+ else {const note=document.createElement('div');note.className='small';note.textContent='カード情報はカード一覧から確認できます。';info.appendChild(note)}
+ const action=q('#expandedCardAction'),hint=q('#expandedCardHint');action.classList.add('hidden');action.onclick=null;hint.textContent='';
+ const own=!(onlineDebugMode||realOnlineMainMode)||viewer===turn;
+ if(context==='market'){
+  const hasMarketDie=unusedDice().length>0;
+  action.textContent='獲得';action.disabled=!own||!hasMarketDie;action.classList.remove('hidden');
+  if(own&&!hasMarketDie)hint.textContent='未使用サイコロがないため、このターンは獲得できません。';
+  action.onclick=()=>{if(!own||!unusedDice().length)return;selectedMarketKey=c.key;modal.classList.add('hidden');renderMarket();q('#markettake').scrollIntoView({behavior:'smooth',block:'center'})};
+ }else if(context==='hand'){
+  action.textContent='設置';action.disabled=!own;action.classList.remove('hidden');
+  action.onclick=()=>{if(!own||index==null)return;modal.classList.add('hidden');selectedHandDetailIndex=index;openSelectedInstall()};
+ }else if(context==='legend'){
+  action.textContent='設置';action.disabled=!own||c.taken||c.eraBlocked||(c.tier==='upper'&&!c.unlocked)||legendTakenThisTurn;action.classList.remove('hidden');
+  action.onclick=()=>{if(action.disabled)return;modal.classList.add('hidden');takeLegend(c.id)};
+ }else{hint.textContent='閲覧のみ';}
+ modal.classList.remove('hidden');
+}
+q('#modalimg').onclick=()=>q('#imgmodal').classList.add('hidden');
+q('#closeExpandedCard').onclick=()=>q('#imgmodal').classList.add('hidden');
+q('#imgmodal').addEventListener('click',e=>{if(e.target===q('#imgmodal'))q('#imgmodal').classList.add('hidden')});
+document.addEventListener('click',e=>{let img=e.target.closest&&e.target.closest('.zoomable');if(!img)return;/* 選択用カード内の画像タップはカード本体のクリックを優先する */if(img.closest&&img.closest('button.card'))return;if(img.closest&&img.closest('#market .card'))return;e.preventDefault();e.stopPropagation();openCardImage(img, [...(typeof market!=='undefined'?market:[]),...(typeof LEGEND_CATALOG!=='undefined'?LEGEND_CATALOG:[]),...(typeof STANDARD_CATALOG!=='undefined'?STANDARD_CATALOG:[])].find(c=>resolvedContentImage(c)===img.getAttribute('src')||c.name===img.alt)||null)},true);
+document.addEventListener('contextmenu',e=>{if(e.target.closest&&e.target.closest('.zoomable'))e.preventDefault()});
+// Ver.2.52 entry gate and online-version test lobby.
+// BOT mode must be initialized before the first debug visibility refresh.
+let botMatchMode=false,botBusy=false,botTimer=null;
+let debugLocalMode=false, onlineDebugMode=false;
+let onlineDebugPlayers=[];
+function updateDebugCommandVisibility(){
+ const enabled=!botMatchMode&&(debugLocalMode||onlineDebugMode);
+ const tab=q('#debugCommandTab'); if(tab)tab.style.display=enabled?'':'none';
+ const panel=q('#debugpanel'); if(panel)panel.style.display=enabled?'':'none';
+}
+updateDebugCommandVisibility();
+function enterLocalDebugMode(){
+ debugLocalMode=true;
+ onlineDebugMode=false;
+ updateDebugCommandVisibility();
+ const entry=q('#entryScreen'),app=q('#mainApp');
+ if(entry)entry.classList.add('hidden');
+ if(app)app.classList.remove('entry-locked');
+ q('#status').textContent='デバッグモード：ローカルでP1〜P4を操作できます。';
+}
+function captureOnlineDebugLobbyPendingSettings(){
+ const lobby=q('#onlineDebugLobby');
+ if(!lobby||lobby.classList.contains('hidden'))return;
+ const el=q('#onlineDebugRuleWinVP');
+ if(el&&el.value.trim()!==''){
+  const n=Math.floor(Number(el.value));
+  if(Number.isFinite(n)&&n>=1)gameSettings.winVP=n;
+ }
+}
+function renderOnlineDebugLobby(){
+ captureOnlineDebugLobbyPendingSettings();
+ const lobby=q('#onlineDebugLobby');
+ const passLabel=lobby?.querySelector('.lobby-head .small');
+ if(passLabel)passLabel.textContent=botMatchMode?'合言葉：オートマタ':'合言葉：オーバークロック';
+ const lobbyTitle=lobby?.querySelector('.lobby-head h2');
+ if(lobbyTitle)lobbyTitle.textContent=botMatchMode?'BOT戦ロビー':'オンラインテストロビー';
+ const lobbyBadge=lobby?.querySelector('.lobby-debug-badge');
+ if(lobbyBadge)lobbyBadge.textContent=botMatchMode?'BOT MATCH':'ONLINE DEBUG';
+ const grid=q('#onlineLobbyPlayers'); if(!grid)return; grid.innerHTML='';
+ for(let i=0;i<6;i++){
+  const name=onlineDebugPlayers[i]; const box=document.createElement('div'); box.className='lobby-player '+(name?'':'empty');
+  box.innerHTML='<strong>P'+(i+1)+'</strong><div style="margin-top:6px">'+(name?name:'参加待ち')+'</div>';
+  grid.appendChild(box);
+ }
+ const st=q('#onlineLobbyStatus'); if(st)st.textContent=onlineDebugPlayers.length+'/6人参加中。キャラクター選択へ進めます。'; populateOnlineDebugDeckPreset(); fillLegendSlotSelect('#onlineDebugRuleLegendSlots',gameSettings.deckId,gameSettings.legendSlots); [['#onlineDebugRuleWinVP','winVP'],['#onlineDebugRuleMarketTypes','marketTypes'],['#onlineDebugRuleInitialResources','initialResources'],['#onlineDebugRuleHireLimit','hireLimit']].forEach(([sel,key])=>{let el=q(sel);if(el)el.value=gameSettings[key]});let rr=q('#onlineDebugRandomizer'),rc=q('#onlineDebugRandomizerCount');if(rr)rr.checked=!!gameSettings.randomizerEnabled;if(rc){rc.value=gameSettings.randomizerCount;rc.max=implementedNormalCards().length;rc.disabled=false}let pk=q('#onlineDebugPack1');if(pk)pk.checked=gameSettings.enabledPacks.includes('pack1');let pk2=q('#onlineDebugPack2');if(pk2)pk2.checked=gameSettings.enabledPacks.includes('pack2');let rpk=q('#onlineDebugRulesPack1'),rcm=q('#onlineDebugRCMode'),rcc=q('#onlineDebugRCChoice');fillRCSelect('#onlineDebugRCChoice');if(rpk)rpk.checked=gameSettings.enabledRulePacks?.includes('rules_pack1');if(rcm)rcm.value=gameSettings.ruleCardMode||'select';if(rcc){rcc.value=gameSettings.ruleCardChoice||'RC1';rcc.disabled=gameSettings.ruleCardMode==='random'}
+ if(botMatchMode)updateBotLobbyRestrictions();
+}
+let onlineCharActivePlayer=0,onlineCharSelections=Array(6).fill(null),onlineCharPending=null;
+function onlineCharacterAbilityText(lord){if(!lord)return '';return abilityTextForEntity(lord)||lord.abilityText||''
+}
+function onlineFamilyTaken(familyId,exceptPlayer){return onlineCharSelections.some((x,i)=>i!==exceptPlayer&&x&&x.familyId===familyId)}
+function renderOnlineCharacterScreen(){
+ const pc=q('#onlineCharPlayers'),grid=q('#onlineCharGrid'),opt=q('#onlineCharOptions'),st=q('#onlineCharStatus');
+ if(!pc||!grid)return;
+ const charData=window.KOKORYO_CHARACTER_DATA||{},families=availableCharacterFamilies();
+ pc.innerHTML='';grid.innerHTML='';
+ for(let i=0;i<onlineDebugPlayers.length;i++){let sel=onlineCharSelections[i],b=document.createElement('button');b.type='button';b.className='online-char-player'+(i===onlineCharActivePlayer?' active':'')+(sel?' done':'');let lord=sel&&charData[sel.charId];b.innerHTML='<strong>P'+(i+1)+' '+onlineDebugPlayers[i]+'</strong><div class="small" style="margin-top:4px">'+(lord?lord.name+' ／ '+(characterVersion(characterFamily(sel.familyId),sel.versionId)?.label||''):'未選択')+'</div>';b.disabled=botMatchMode&&i!==0;b.onclick=()=>{if(botMatchMode&&i!==0)return;onlineCharActivePlayer=i;onlineCharPending=null;renderOnlineCharacterScreen()};pc.appendChild(b)}
+ families.forEach(f=>{let taken=onlineFamilyTaken(f.id,onlineCharActivePlayer),cur=onlineCharSelections[onlineCharActivePlayer],card=document.createElement('button');card.type='button';card.className='online-char-card'+(taken?' taken':'')+(cur&&cur.familyId===f.id?' selected':'');card.disabled=taken;card.innerHTML='<strong style="display:block;font-size:18px">'+f.label+'</strong><div class="small" style="margin-top:6px">'+(taken?'他プレイヤーが選択済み':cur&&cur.familyId===f.id?'選択中：'+(characterVersion(f,cur.versionId)?.label||''):'タップしてバージョン選択')+'</div>';card.onclick=()=>{onlineCharPending={familyId:f.id,versionId:null};renderOnlineCharacterOptions(f)};grid.appendChild(card)});
+ if(!onlineCharPending&&opt){opt.classList.add('hidden');opt.innerHTML=''}
+ let count=onlineCharSelections.slice(0,onlineDebugPlayers.length).filter(Boolean).length;if(st)st.textContent=count+'/'+onlineDebugPlayers.length+'人選択済み。';let next=q('#onlineCharNext');if(next)next.disabled=botMatchMode?!onlineCharSelections[0]:count!==onlineDebugPlayers.length;
+}
+function renderOnlineCharacterOptions(f){
+ const opt=q('#onlineCharOptions'),charData=window.KOKORYO_CHARACTER_DATA||{};if(!opt)return;opt.classList.remove('hidden');opt.innerHTML='';
+ let head=document.createElement('strong');head.textContent=f.label;opt.appendChild(head);
+ if(!onlineCharPending||!onlineCharPending.versionId){let note=document.createElement('div');note.className='small';note.style.marginTop='4px';note.textContent='バージョンを選択';opt.appendChild(note);let grid=document.createElement('div');grid.className='online-version-choice-grid';(f.versions||[]).forEach(v=>{let sample=charData[v.male||v.female],b=document.createElement('button');b.type='button';b.className='online-version-choice';b.innerHTML='<strong>'+v.label+'</strong><div class="small">《'+(sample?.uniqueAbility||'')+'》'+abilityStackTag(sample?.uniqueAbility)+'<br>'+(sample?onlineCharacterAbilityText(sample):'')+'</div>';b.onclick=()=>{onlineCharPending={familyId:f.id,versionId:v.id};renderOnlineCharacterOptions(f)};grid.appendChild(b)});opt.appendChild(grid);return}
+ let v=characterVersion(f,onlineCharPending.versionId),sample=charData[v?.male||v?.female];let detail=document.createElement('div');detail.className='small';detail.style.cssText='margin-top:6px;line-height:1.5';detail.innerHTML='<strong>'+v.label+'</strong><br>《'+(sample?.uniqueAbility||'')+'》'+abilityStackTag(sample?.uniqueAbility)+'<br>'+(sample?onlineCharacterAbilityText(sample):'');opt.appendChild(detail);let g=document.createElement('div');g.className='online-gender-choice';[['男性',v.male],['女性',v.female]].forEach(([label,id])=>{if(!id||!charData[id])return;let b=document.createElement('button');b.type='button';b.className='secondary';b.textContent=label;b.onclick=()=>{onlineCharSelections[onlineCharActivePlayer]={familyId:f.id,versionId:v.id,charId:id};onlineCharPending=null;if(botMatchMode)botFillCharacters();else renderOnlineCharacterScreen()};g.appendChild(b)});opt.appendChild(g);let back=document.createElement('button');back.type='button';back.className='secondary online-char-back-mini';back.textContent='← バージョン選択へ戻る';back.onclick=()=>{onlineCharPending={familyId:f.id,versionId:null};renderOnlineCharacterOptions(f)};opt.appendChild(back)
+}
+let onlineDraftPacks=[],onlineDraftHands=[],onlineDraftSelected=[],onlineDraftRound=0,onlineDraftActivePlayer=0,onlineDraftPendingIndex=null;
+function startOnlineDraft(){const n=onlineDebugPlayers.length;playerCount=n;characters=onlineCharSelections.slice(0,n).map(x=>x&&CHARACTER_DATA[x.charId]?x.charId:'P1');characterMode=characters[0]||'P1';let s=sh(STD);onlineDraftPacks=Array.from({length:n},()=>s.splice(0,5));unusedStd=s;onlineDraftHands=Array.from({length:n},()=>[]);onlineDraftSelected=Array(n).fill(false);onlineDraftRound=0;onlineDraftActivePlayer=0;onlineDraftPendingIndex=null;q('#onlineCharacterScreen').classList.add('hidden');q('#onlineDraftScreen').classList.remove('hidden');renderOnlineDraft()}
+function renderOnlineDraft(){const n=onlineDebugPlayers.length,p=botMatchMode?0:onlineDraftActivePlayer,cards=q('#onlineDraftCards'),players=q('#onlineDraftPlayers');if(!cards||!players)return;q('#onlineDraftRound').textContent=onlineDraftRound+1;q('#onlineDraftWho').textContent='P'+(p+1)+' '+onlineDebugPlayers[p]+' のドラフト';q('#onlineDraftProgress').textContent=onlineDraftSelected.filter(Boolean).length+'/'+n+'人選択済み';q('#onlineDraftOwned').textContent='獲得済み '+onlineDraftHands[p].length+'/3枚：'+(onlineDraftHands[p].map(c=>c.name).join('、')||'なし');cards.innerHTML='';if(onlineDraftSelected[p]){let x=document.createElement('div');x.className='notice';x.style.gridColumn='1/-1';x.textContent='この巡は選択済みです。ほかのプレイヤーの選択を待っています。';cards.appendChild(x)}else onlineDraftPacks[p].forEach((c,i)=>{let b=document.createElement('button');b.type='button';b.className='online-info-card online-draft-card';if(onlineDraftPendingIndex===i)b.classList.add('selected');let cv=card(c,1,false);let ef=document.createElement('div');ef.className='card-effect-inline';ef.replaceChildren(cardInfoSections(c));b.append(cv,ef);b.onclick=()=>{if(botMatchMode&&onlineDraftActivePlayer!==0)return;onlineDraftPendingIndex=i;renderOnlineDraft()};cards.appendChild(b)});let confirm=q('#onlineDraftConfirm');confirm.disabled=onlineDraftSelected[p]||onlineDraftPendingIndex===null||(botMatchMode&&onlineDraftActivePlayer!==0);players.innerHTML='';for(let i=0;i<n;i++){let b=document.createElement('button');b.type='button';b.className='online-char-player'+(i===p?' active':'')+(onlineDraftSelected[i]?' done':'');b.innerHTML='<strong>P'+(i+1)+' '+onlineDebugPlayers[i]+'</strong><div class="small" style="margin-top:4px">獲得 '+onlineDraftHands[i].length+'/3・'+(onlineDraftSelected[i]?'選択済み':'未選択')+'</div>';b.disabled=botMatchMode&&i!==0;b.onclick=()=>{if(botMatchMode&&i!==0)return;onlineDraftActivePlayer=i;onlineDraftPendingIndex=null;renderOnlineDraft()};players.appendChild(b)}let st=q('#onlineDraftStatus');if(st)st.textContent=onlineDraftSelected[p]?'このプレイヤーは選択済みです。':'カードを1枚タップしてから確定してください。'}
+function confirmOnlineDraftPick(){
+ if(botMatchMode){
+  if(onlineDraftActivePlayer!==0||onlineDraftSelected[0]||onlineDraftPendingIndex===null||!onlineDraftPacks[0]?.[onlineDraftPendingIndex])return;
+  const i=onlineDraftPendingIndex;
+  onlineDraftHands[0].push(onlineDraftPacks[0][i]);
+  onlineDraftPacks[0].splice(i,1);
+  onlineDraftSelected[0]=true;
+  onlineDraftPendingIndex=null;
+  // BOTの選択は画面の操作プレイヤーを変更せず内部で完了させる。
+  queueBotDraft();
+  return;
+ }
+ const p=onlineDraftActivePlayer,i=onlineDraftPendingIndex;
+ if(onlineDraftSelected[p]||i===null||!onlineDraftPacks[p]?.[i])return;
+ onlineDraftHands[p].push(onlineDraftPacks[p][i]);onlineDraftPacks[p].splice(i,1);onlineDraftSelected[p]=true;onlineDraftPendingIndex=null;
+ if(onlineDraftSelected.every(Boolean)){
+  if(onlineDraftRound===2){startOnlineResourceSelection();return}
+  let old=onlineDraftPacks.map(x=>[...x]),next=Array.from({length:onlineDebugPlayers.length},()=>[]);
+  for(let p=0;p<onlineDebugPlayers.length;p++)next[(p+1)%onlineDebugPlayers.length]=old[p];
+  onlineDraftPacks=next;onlineDraftRound++;onlineDraftSelected=Array(onlineDebugPlayers.length).fill(false);onlineDraftActivePlayer=0;renderOnlineDraft();return;
+ }
+ let n=p;do{n=(n+1)%onlineDebugPlayers.length}while(onlineDraftSelected[n]);onlineDraftActivePlayer=n;renderOnlineDraft();
+}
+let onlineResourceChoices=[],onlineResourceConfirmed=[],onlineResourceActivePlayer=0;
+function syncOnlineDebugRulesFromUI(){
+ let num=(sel,key,min)=>{let el=q(sel);if(!el)return;let n=Math.max(min,Math.floor(Number(el.value)||min));gameSettings[key]=n;el.value=n};
+ num('#onlineDebugRuleWinVP','winVP',1);num('#onlineDebugRuleMarketTypes','marketTypes',1);num('#onlineDebugRuleInitialResources','initialResources',0);num('#onlineDebugRuleHireLimit','hireLimit',0);num('#onlineDebugRuleLegendSlots','legendSlots',1);
+ let re=q('#onlineDebugRandomizer'),rc=q('#onlineDebugRandomizerCount');if(re)gameSettings.randomizerEnabled=!!re.checked;if(rc){gameSettings.randomizerCount=clampedRandomizerCount(rc.value);rc.value=gameSettings.randomizerCount}
+ let packs=[];if(q('#onlineDebugPack1')?.checked)packs.push('pack1');if(q('#onlineDebugPack2')?.checked)packs.push('pack2');gameSettings.enabledPacks=packs;
+ gameSettings.enabledRulePacks=q('#onlineDebugRulesPack1')?.checked?['rules_pack1']:[];
+ gameSettings.ruleCardMode=q('#onlineDebugRCMode')?.value||'select';gameSettings.ruleCardChoice=q('#onlineDebugRCChoice')?.value||'RC1';
+ if(botMatchMode)enforceBotRestrictions();
+ syncMarketTargetUI();resolveActiveRuleCards();
+}
+function prepareOnlineGameState(){
+ syncOnlineDebugRulesFromUI();
+ let rs=q('#onlineLobbyStatus');if(rs)rs.textContent='適用ルール：勝利'+gameSettings.winVP+'VP／公開'+gameSettings.marketTypes+'種／初期資源'+gameSettings.initialResources+'／雇用上限'+gameSettings.hireLimit+'／下位レジェンド'+gameSettings.legendSlots;
+ const n=onlineDebugPlayers.length;playerCount=n;hands=onlineDraftHands.map(x=>[...x]);packs=onlineDraftPacks.map(x=>[...x]);
+ powers=Array.from({length:n},()=>({y:0,r:0,p:0}));installed=Array.from({length:n},()=>[]);temporary=Array.from({length:n},()=>[]);elekiterUsed=Array(n).fill(false);commandCounts=Array(n).fill(0);komePlace=100;pendingParkPlayers=[];pendingParkTaken=[];breadDeck=makeBreadDeck();breadDiscard=[];breadHands=Array.from({length:n},()=>[]);employeeDeck=[];employees=Array.from({length:n},()=>[]);lordFirstBreadUsed=Array(n).fill(false);lordOverclockUsed=Array(n).fill(false);pendingOverclockChoices=[];debugVP=Array(n).fill(0);graveyardUsed=Array(n).fill(false);publicMarketUsed=Array(n).fill(false);hiredThisTurn=false;organizationUsed=[];nightEscapePostAvailable=false;nightEscapeResetNext=Array(playerCount).fill(false);fusionUsedThisTurn=false;pendingSSRBonus=0;pendingCastResourceChoices=[];viewer=0;market=[];discard=[];selectedMarketKey=null;marketUndoHistory=[];commandUndoHistory=[];dialogLog=[];turn=0;dice=[];resetGameEndState();
+ initLegends();let leftovers=packs.flat(),normalDeck=normalCardsForDeck(gameSettings.deckId);deck=sh([...unusedStd,...leftovers,...normalDeck,...makeRandomizerCards()]);resetNormalCardAudit();
+}
+function startOnlineResourceSelection(){
+ prepareOnlineGameState();const n=onlineDebugPlayers.length;onlineResourceChoices=Array.from({length:n},()=>({y:0,p:0,r:0}));onlineResourceConfirmed=Array(n).fill(false);onlineResourceActivePlayer=0;q('#onlineDraftScreen').classList.add('hidden');q('#onlineResourceScreen').classList.remove('hidden');renderOnlineResourceSelection();
+}
+function renderOnlineResourceSelection(){
+ const n=onlineDebugPlayers.length,p=onlineResourceActivePlayer,v=onlineResourceChoices[p],hand=q('#onlineResourceHand'),choices=q('#onlineResourceChoices'),players=q('#onlineResourcePlayers');if(!hand||!choices||!players)return;const total=v.y+v.p+v.r,remain=gameSettings.initialResources-total,cd=CHARACTER_DATA[characters[p]];
+ q('#onlineResourceWho').textContent='P'+(p+1)+' '+onlineDebugPlayers[p]+' ／ '+(cd?cd.name:'');hand.innerHTML='<strong>現在の手札</strong><div class="small">ドラフトで獲得した3枚を確認して資源を選べます。</div>';let hg=document.createElement('div');hg.className='online-resource-card-grid';hands[p].forEach(c=>{let w=document.createElement('div');w.className='online-info-card';let cv=card(c,1,false);let ef=document.createElement('div');ef.className='card-effect-inline';ef.replaceChildren(cardInfoSections(c));w.append(cv,ef);hg.appendChild(w)});hand.appendChild(hg);
+ choices.innerHTML='<div><strong>初期資源</strong>　残り <strong>'+remain+'</strong> / '+gameSettings.initialResources+'</div>';let row=document.createElement('div');row.className='turnstart-buttons';row.style.marginTop='9px';[['y','💰 資金'],['p','🍖 食料'],['r','⚔️ 兵力']].forEach(([c,label])=>{let b=document.createElement('button');b.type='button';b.className='secondary';b.textContent=label+' '+v[c];b.disabled=onlineResourceConfirmed[p]||remain<=0;b.onclick=()=>{if(v.y+v.p+v.r<gameSettings.initialResources){v[c]++;renderOnlineResourceSelection()}};row.appendChild(b)});let reset=document.createElement('button');reset.type='button';reset.className='secondary';reset.textContent='選び直す';reset.disabled=onlineResourceConfirmed[p]||total===0;reset.onclick=()=>{onlineResourceChoices[p]={y:0,p:0,r:0};renderOnlineResourceSelection()};row.appendChild(reset);choices.appendChild(row);
+ let confirm=q('#onlineResourceConfirm');confirm.disabled=onlineResourceConfirmed[p]||total!==gameSettings.initialResources;confirm.textContent=onlineResourceConfirmed[p]?'確定済み':'この資源配分で確定';players.innerHTML='';for(let i=0;i<n;i++){let x=onlineResourceChoices[i],b=document.createElement('button');b.type='button';b.className='online-char-player'+(i===p?' active':'')+(onlineResourceConfirmed[i]?' done':'');b.innerHTML='<strong>P'+(i+1)+' '+onlineDebugPlayers[i]+'</strong><div class="small" style="margin-top:4px">'+(onlineResourceConfirmed[i]?'確定済み':'未確定')+(i===p?' ／ 資金'+x.y+' 食料'+x.p+' 兵力'+x.r:'')+'</div>';b.onclick=()=>{onlineResourceActivePlayer=i;renderOnlineResourceSelection();if(botMatchMode)queueBotResources()};players.appendChild(b)}q('#onlineResourceStatus').textContent=onlineResourceConfirmed.filter(Boolean).length+'/'+n+'人確定済み。';
+}
+function confirmOnlineResources(){const p=onlineResourceActivePlayer,v=onlineResourceChoices[p];if(onlineResourceConfirmed[p]||v.y+v.p+v.r!==gameSettings.initialResources)return;onlineResourceConfirmed[p]=true;if(onlineResourceConfirmed.every(Boolean)){for(let i=0;i<playerCount;i++)powers[i]={...onlineResourceChoices[i]};resolveGameStartCharacterEffects();saveDebugInitialMarketSnapshot();refillTo8();q('#onlineResourceScreen').classList.add('hidden');let app=q('#mainApp');if(app)app.classList.remove('entry-locked');q('#setup').classList.add('hidden');q('#draft').classList.add('hidden');q('#gamestartsetup').classList.add('hidden');q('#game').classList.remove('hidden');q('#status').textContent='ゲーム開始時処理完了。勝利条件 '+gameSettings.winVP+'VP。オープンマーケットを公開しました。';q('#start').textContent='ゲーム開始';q('#start').style.display='none';turn=chooseFirstPlayer();if(onlineDebugMode&&!realOnlineMainMode&&!botMatchMode)viewer=turn;beginTurn();if(botMatchMode)queueBotTurn();return}let i=p;do{i=(i+1)%playerCount}while(onlineResourceConfirmed[i]);onlineResourceActivePlayer=i;renderOnlineResourceSelection()}
+function autoCompleteOnlineDebugSetup(){
+ const n=onlineDebugPlayers.length;if(!n)return;
+ // 3巡を自動ドラフト。各Pはその時点の候補からランダムに1枚獲得し、残りを次へ渡す。
+ for(let round=0;round<3;round++){
+  for(let p=0;p<n;p++){let pack=onlineDraftPacks[p];if(pack&&pack.length){let i=Math.floor(Math.random()*pack.length);onlineDraftHands[p].push(pack.splice(i,1)[0])}}
+  if(round<2){let old=onlineDraftPacks.map(x=>[...x]),next=Array.from({length:n},()=>[]);for(let p=0;p<n;p++)next[(p+1)%n]=old[p];onlineDraftPacks=next}
+ }
+ startOnlineResourceSelection();
+ // 初期資源もテスト用に自動配分する。合計値だけ通常ルールと同じにする。
+ for(let p=0;p<n;p++){let v={y:0,p:0,r:0},keys=['y','p','r'];for(let k=0;k<gameSettings.initialResources;k++)v[keys[Math.floor(Math.random()*3)]]++;onlineResourceChoices[p]=v}
+ onlineResourceConfirmed=Array(n).fill(false);onlineResourceActivePlayer=0;
+ while(!onlineResourceConfirmed.every(Boolean)){confirmOnlineResources()}
+}
+function openOnlineCharacterScreen(){if(!onlineDebugPlayers.length)return;syncOnlineDebugRulesFromUI();realOnlineCharacterMode=false;const sub=q('#onlineCharSub'),badge=q('#onlineCharBadge'),notice=q('#onlineCharNotice'),dbg=q('#onlineCharDebugSwitch');if(sub)sub.textContent='オンライン共有画面テスト';if(badge){badge.textContent='ONLINE DEBUG';badge.style.background='#222'}if(notice)notice.textContent='各プレイヤーの選択状況は全員に共有される想定です。デバッグでは画面下部で操作するPを切り替えて1人で確認できます。';if(dbg)dbg.style.display='block';onlineCharSelections=onlineCharSelections.slice(0,onlineDebugPlayers.length);while(onlineCharSelections.length<6)onlineCharSelections.push(null);onlineCharActivePlayer=0;onlineCharPending=null;q('#onlineDebugLobby').classList.add('hidden');q('#onlineCharacterScreen').classList.remove('hidden');renderOnlineCharacterScreen()}
+function closeOnlineCharacterScreen(){q('#onlineCharacterScreen').classList.add('hidden');q('#onlineDebugLobby').classList.remove('hidden');renderOnlineDebugLobby()}
+// Ver.3.9: Supabase Realtime Presence を使った実オンラインロビー。
+// Presence は接続中の参加者だけを保持するため、ブラウザを閉じた参加者がロビーに残り続けない。
+const SUPABASE_URL='https://csiuvadxhgvzvzagdoiv.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY='sb_publishable_g573mGIyjUALs63lEzuR0g_P5GWorI0';
+let sbClient=null,realLobbyChannel=null,realLobbyRoomKey='',realLobbyName='',realLobbyClientId='';
+let realOnlineCharacterMode=false,realLobbyCharSelection=null,realLobbyCharReady=false,realLobbyJoinedAt='',realLobbyCharPending=null;
+let realOnlineDraftMode=false,realDraftState=null,realDraftPendingIndex=null,realDraftInitSent=false;
+let realOnlineResourceMode=false,realResourceState=null,realResourceInitSent=false;
+let realOnlineMainMode=false,realMainApplying=false,realMainStarted=false;
+let realMainRoster=[];
+let realLobbyPhase='lobby',realLobbyHostId='';
+let realOnlineDeckId='standard1',realOnlineDeckConfig=null;
+let realOnlineDeckName='スタンダード1',realDeckSubmissions={};
+let realOnlineRules={winVP:20,marketTypes:8,initialResources:4,hireLimit:3,legendSlots:3,pack1Enabled:false,pack2Enabled:false,rulesPack1Enabled:false,ruleCardMode:'select',ruleCardChoice:'RC1'};
+const REAL_SESSION_KEY='kokoryo_online_resume_v36';
+function makeOnlineClientId(){
+ const k='kokoryo_online_client_v36';
+ try{let v=localStorage.getItem(k);if(v)return v;v=(crypto.randomUUID?crypto.randomUUID():'c-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2));localStorage.setItem(k,v);return v}catch(e){return 'c-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2)}
+}
+async function makeRoomKey(pass){
+ const src='kokoryo-room-v3:'+String(pass||'');
+ try{if(globalThis.crypto?.subtle){const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(src));return Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,'0')).join('').slice(0,32)}}catch(e){}
+ let h=2166136261;for(let i=0;i<src.length;i++){h^=src.charCodeAt(i);h=Math.imul(h,16777619)}return 'fallback-'+(h>>>0).toString(16);
+}
+function saveRealOnlineResume(){
+ if(!realLobbyRoomKey||!realLobbyClientId)return;
+ try{localStorage.setItem(REAL_SESSION_KEY,JSON.stringify({roomKey:realLobbyRoomKey,name:realLobbyName,clientId:realLobbyClientId,joinedAt:realLobbyJoinedAt,phase:realLobbyPhase,hostId:realLobbyHostId,character:realLobbyCharSelection,charReady:realLobbyCharReady,draftState:realDraftState,resourceState:realResourceState,mainState:(realOnlineMainMode?realMainSnapshot():(()=>{try{const old=JSON.parse(localStorage.getItem(REAL_SESSION_KEY)||'null');return old?.roomKey===realLobbyRoomKey?old.mainState||null:null}catch(e){return null}})()),deckId:realOnlineDeckId,deckName:realOnlineDeckName,deckConfig:realOnlineDeckConfig,rules:realOnlineRules,ts:Date.now()}))}catch(e){}
+}
+function clearRealOnlineResume(){try{localStorage.removeItem(REAL_SESSION_KEY)}catch(e){}}
+function loadRealOnlineResume(){try{return JSON.parse(localStorage.getItem(REAL_SESSION_KEY)||'null')}catch(e){return null}}
+function isRealLobbyHost(){return !!realLobbyHostId&&realLobbyHostId===realLobbyClientId}
+let realHostReconcilePending=false;
+async function reconcileRealLobbyHost(){
+ if(realHostReconcilePending||!realLobbyChannel)return;
+ const players=flattenLobbyPresence();
+ if(!players.length)return;
+ if(realLobbyHostId&&players.some(p=>p.client_id===realLobbyHostId))return;
+ const nextHost=players[0].client_id;
+ realLobbyHostId=nextHost;
+ turnClockHostChanged();
+ saveRealOnlineResume();
+ if(nextHost===realLobbyClientId){
+  realHostReconcilePending=true;
+  try{
+   await trackRealLobbyPresence();
+   await realLobbyChannel.send({type:'broadcast',event:'host_change',payload:{hostId:nextHost}});
+  }catch(e){console.error(e)}finally{realHostReconcilePending=false}
+ }
+ if(realOnlineMainMode)renderGame();else if(realOnlineCharacterMode)renderRealOnlineCharacterScreen();else renderRealLobby();
+}
+function setRealOnlinePhase(phase){
+ realLobbyPhase=phase||'lobby';saveRealOnlineResume();
+ ['#onlineCharLeaveRoom','#onlineDraftLeaveRoom','#onlineResourceLeaveRoom','#mainLeaveRoom'].forEach(sel=>q(sel)?.classList.toggle('hidden',!realLobbyChannel));
+ q('#onlineRealLobby')?.classList.add('hidden');q('#onlineCharacterScreen')?.classList.add('hidden');q('#onlineDraftScreen')?.classList.add('hidden');q('#onlineResourceScreen')?.classList.add('hidden');
+ if(realLobbyPhase==='character')openRealOnlineCharacterScreen();else if(realLobbyPhase==='draft'&&realDraftState)applyRealDraftInit(realDraftState);else if(realLobbyPhase==='resource'&&realResourceState)applyRealResourceInit(realResourceState);else if(realLobbyPhase==='main'){let r=loadRealOnlineResume();if(r?.mainState)applyRealMainSnapshot(r.mainState);}else{realLobbyPhase='lobby';realOnlineMainMode=false;realMainStarted=false;q('#game')?.classList.add('hidden');q('#mainApp')?.classList.add('entry-locked');q('#onlineRealLobby')?.classList.remove('hidden');saveRealOnlineResume();renderRealLobby()}
+}
+async function broadcastRealPhase(phase){realLobbyPhase=phase;saveRealOnlineResume();if(realLobbyChannel)await realLobbyChannel.send({type:'broadcast',event:'phase_change',payload:{phase,hostId:realLobbyHostId}})}
+function ensureSupabaseClient(){
+ if(sbClient)return sbClient;
+ if(!window.supabase?.createClient)throw new Error('Supabaseライブラリを読み込めませんでした。通信状態を確認してください。');
+ sbClient=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY,{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false}});
+ return sbClient;
+}
+function flattenLobbyPresence(){
+ if(!realLobbyChannel)return [];
+ const state=realLobbyChannel.presenceState()||{},out=[];
+ Object.entries(state).forEach(([key,list])=>(list||[]).forEach(x=>out.push({key,name:String(x.name||'プレイヤー'),joined_at:String(x.joined_at||''),client_id:String(x.client_id||key),character:x.character||null,char_ready:!!x.char_ready,host_id:String(x.host_id||''),phase:String(x.phase||'lobby'),clock_protocol:Number(x.clock_protocol)||0})));
+ const seen=new Set();return out.sort((a,b)=>(a.joined_at||'').localeCompare(b.joined_at||'')||a.client_id.localeCompare(b.client_id)).filter(x=>{if(seen.has(x.client_id))return false;seen.add(x.client_id);return true});
+}
+function escapeHtml(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]))}
+function setRealLobbyConnection(text,state=''){
+ const t=q('#realLobbyConnection'),d=q('#realLobbyDot');if(t)t.textContent=text;if(d)d.className='online-dot'+(state?' '+state:'');
+}
+async function trackRealLobbyPresence(){
+ if(!realLobbyChannel)return;
+ await realLobbyChannel.track({clock_protocol:1,name:realLobbyName,client_id:realLobbyClientId,joined_at:realLobbyJoinedAt||new Date().toISOString(),character:realLobbyCharSelection,char_ready:realLobbyCharReady,host_id:realLobbyHostId,phase:realLobbyPhase});saveRealOnlineResume();
+}
+// Ver.0.3.185: 実オンラインはロビーで選択した追加パックのみを領主候補に含める。
+function realAvailableCharacterFamilies(){return availableCharacterFamilies()}
+function realCharacterSelectionAllowed(sel){
+ if(!sel)return false;
+ const family=realAvailableCharacterFamilies().find(f=>f.id===sel.familyId);
+ const version=family?.versions?.find(v=>v.id===sel.versionId);
+ return !!(version&&sel.charId&&(version.male===sel.charId||version.female===sel.charId));
+}
+function realFamilyTaken(familyId){return flattenLobbyPresence().some(p=>p.client_id!==realLobbyClientId&&p.character&&p.character.familyId===familyId)}
+function realOnlineCharacterDuplicate(players=realLobbyPlayers()){
+ const taken=new Set();
+ for(const p of players){const f=p.character?.familyId;if(!f)continue;if(taken.has(f))return f;taken.add(f)}
+ return null;
+}
+function renderRealOnlineCharacterScreen(){
+ const players=flattenLobbyPresence(),grid=q('#onlineCharGrid'),pc=q('#onlineCharPlayers'),opt=q('#onlineCharOptions'),st=q('#onlineCharStatus');if(!grid||!st)return;
+ const families=realAvailableCharacterFamilies(),charData=window.KOKORYO_CHARACTER_DATA||CHARACTER_DATA;if(realLobbyCharSelection&&!realCharacterSelectionAllowed(realLobbyCharSelection)){realLobbyCharSelection=null;realLobbyCharReady=false;realLobbyCharPending=null;trackRealLobbyPresence().catch(console.error)}if(pc)pc.innerHTML='';grid.innerHTML='';
+ players.slice(0,6).forEach((p,i)=>{let b=document.createElement('div');b.className='online-char-player'+(p.client_id===realLobbyClientId?' active':'')+(p.character?' done':'');let lord=p.character?charData[p.character.charId]:null;b.innerHTML='<strong>P'+(i+1)+' '+escapeHtml(p.name)+'</strong><div class="small" style="margin-top:4px">'+(lord?escapeHtml(lord.name)+' ／ '+escapeHtml(characterVersion(characterFamily(p.character.familyId),p.character.versionId)?.label||''):'未選択')+(p.char_ready?' ／ 確定済み':'')+'</div>';if(pc)pc.appendChild(b)});
+ families.forEach(f=>{const taken=realFamilyTaken(f.id),cur=realLobbyCharSelection,card=document.createElement('button');card.type='button';card.className='online-char-card'+(taken?' taken':'')+(cur&&cur.familyId===f.id?' selected':'');card.disabled=taken||realLobbyCharReady;card.innerHTML='<strong style="display:block;font-size:18px">'+escapeHtml(f.label)+'</strong><div class="small" style="margin-top:6px">'+(taken?'他プレイヤーが選択済み':cur&&cur.familyId===f.id?'選択中：'+escapeHtml(characterVersion(f,cur.versionId)?.label||''):'タップしてバージョン選択')+'</div>';card.onclick=()=>{realLobbyCharPending={familyId:f.id,versionId:null};renderRealOnlineCharacterOptions(f)};grid.appendChild(card)});
+ if(!realLobbyCharPending&&opt){opt.classList.add('hidden');opt.innerHTML=''}
+ const chosen=realLobbyCharSelection?charData[realLobbyCharSelection.charId]:null,readyCount=players.slice(0,6).filter(p=>p.char_ready).length;st.textContent=chosen?(realLobbyCharReady?'あなたは「'+chosen.name+'」で確定済みです。':'選択中：'+chosen.name+'。確定すると他のプレイヤーに共有されます。'):'キャラクターを選択してください。';const next=q('#onlineCharNext');if(next){next.textContent=realLobbyCharReady?'選択確定済み':'このキャラクターで確定';next.disabled=!realLobbyCharSelection||realLobbyCharReady}const back=q('#onlineCharBack');if(back)back.textContent='ロビーへ戻る';if(players.length&&readyCount===players.length){st.textContent+='　全員の選択が確定しました。ドラフトへ移動します。';setTimeout(()=>maybeStartRealOnlineDraft(),0)}
+}
+function renderRealOnlineCharacterOptions(f){
+ f=realAvailableCharacterFamilies().find(x=>x.id===f?.id);if(!f||realFamilyTaken(f.id)){realLobbyCharPending=null;renderRealOnlineCharacterScreen();return}
+ const opt=q('#onlineCharOptions'),charData=window.KOKORYO_CHARACTER_DATA||CHARACTER_DATA;if(!opt)return;opt.classList.remove('hidden');opt.innerHTML='';let head=document.createElement('strong');head.textContent=f.label;opt.appendChild(head);
+ if(!realLobbyCharPending||!realLobbyCharPending.versionId){let note=document.createElement('div');note.className='small';note.style.marginTop='4px';note.textContent='バージョンを選択';opt.appendChild(note);let grid=document.createElement('div');grid.className='online-version-choice-grid';(f.versions||[]).forEach(v=>{let sample=charData[v.male||v.female],b=document.createElement('button');b.type='button';b.className='online-version-choice';b.innerHTML='<strong>'+escapeHtml(v.label)+'</strong><div class="small">《'+escapeHtml(sample?.uniqueAbility||'')+'》'+abilityStackTag(sample?.uniqueAbility)+'<br>'+escapeHtml(sample?onlineCharacterAbilityText(sample):'')+'</div>';b.onclick=()=>{if(realFamilyTaken(f.id)){realLobbyCharPending=null;renderRealOnlineCharacterScreen();return}realLobbyCharPending={familyId:f.id,versionId:v.id};renderRealOnlineCharacterOptions(f)};grid.appendChild(b)});opt.appendChild(grid);return}
+ let v=characterVersion(f,realLobbyCharPending.versionId),sample=charData[v?.male||v?.female],detail=document.createElement('div');detail.className='small';detail.style.cssText='margin-top:6px;line-height:1.5';detail.innerHTML='<strong>'+escapeHtml(v.label)+'</strong><br>《'+escapeHtml(sample?.uniqueAbility||'')+'》'+abilityStackTag(sample?.uniqueAbility)+'<br>'+escapeHtml(sample?onlineCharacterAbilityText(sample):'');opt.appendChild(detail);let g=document.createElement('div');g.className='online-gender-choice';[['男性',v.male],['女性',v.female]].forEach(([label,id])=>{if(!id||!charData[id])return;let b=document.createElement('button');b.type='button';b.className='secondary';b.textContent=label;b.onclick=async()=>{if(realFamilyTaken(f.id)||!realCharacterSelectionAllowed({familyId:f.id,versionId:v.id,charId:id}))return;realLobbyCharSelection={familyId:f.id,versionId:v.id,charId:id};realLobbyCharReady=false;realLobbyCharPending=null;try{await trackRealLobbyPresence()}catch(err){console.error(err)}renderRealOnlineCharacterScreen()};g.appendChild(b)});opt.appendChild(g);let back=document.createElement('button');back.type='button';back.className='secondary online-char-back-mini';back.textContent='← バージョン選択へ戻る';back.onclick=()=>{realLobbyCharPending={familyId:f.id,versionId:null};renderRealOnlineCharacterOptions(f)};opt.appendChild(back)
+}
+
+// Ver.3.9: 実オンライン・ドラフト同期。候補表示は本人分だけに限定する。
+function realLobbyPlayers(){return flattenLobbyPresence().slice(0,6)}
+function realMyPlayerIndex(){
+ const roster=realOnlineMainMode&&realMainRoster.length?realMainRoster:(realResourceState?.roster?.length?realResourceState.roster:realDraftState?.roster?.length?realDraftState.roster:realLobbyPlayers());
+ return roster.findIndex(x=>x.client_id===realLobbyClientId);
+}
+function realPlayerName(p){
+ return (realOnlineMainMode&&realMainRoster.length?realMainRoster:realLobbyPlayers())[p]?.name||'';
+}
+function stdCardFromKey(key){return STD_BASE.find(c=>c.key===key)||STD.find(c=>c.key===key)||null}
+function makeRealDraftInitialState(){
+ const n=realLobbyPlayers().length,s=sh(STD).map(c=>c.key),packs=[];for(let i=0;i<n;i++)packs.push(s.splice(0,5));
+ return {roster:realLobbyPlayers().map(p=>({client_id:p.client_id,name:p.name,charId:p.character?.charId||'P1'})),round:0,packs,hands:Array.from({length:n},()=>[]),selected:Array(n).fill(false),playerCount:n,deckId:realOnlineDeckId,deckConfig:realOnlineDeckConfig?cloneCustomDeck(realOnlineDeckConfig):null};
+}
+function applyRealDraftInit(state){
+ if(!state||!Array.isArray(state.packs))return;if(state.deckId){realOnlineDeckId=state.deckId;gameSettings.deckId=state.deckId}if(state.deckConfig){realOnlineDeckConfig=cloneCustomDeck(state.deckConfig);customDeck=cloneCustomDeck(state.deckConfig)}realDraftState=JSON.parse(JSON.stringify(state));realDraftPendingIndex=null;realOnlineDraftMode=true;realOnlineCharacterMode=false;realLobbyPhase='draft';saveRealOnlineResume();
+ q('#onlineCharacterScreen')?.classList.add('hidden');q('#onlineDraftScreen')?.classList.add('hidden');q('#onlineRealLobby')?.classList.add('hidden');q('#onlineDraftScreen')?.classList.remove('hidden');
+ const badge=q('#onlineDraftScreen .lobby-debug-badge');if(badge){badge.textContent='ONLINE';badge.style.background='#176b3a'}
+ const dbg=q('#onlineDraftScreen .online-draft-debug');if(dbg)dbg.style.display='none';
+ const notice=q('#onlineDraftScreen .notice');if(notice)notice.textContent='自分に配られた候補だけが表示されます。欲しいカードを1枚選び、「このカードを選択」で確定してください。';
+ renderRealOnlineDraft();
+}
+function applyRealDraftPick(payload){
+ if(!realDraftState||!payload||+payload.round!==realDraftState.round)return;const p=+payload.playerIndex,i=+payload.cardIndex;if(p<0||p>=realDraftState.playerCount||realDraftState.selected[p]||!realDraftState.packs[p]?.[i])return;
+ realDraftState.hands[p].push(realDraftState.packs[p][i]);realDraftState.packs[p].splice(i,1);realDraftState.selected[p]=true;realDraftPendingIndex=null;
+ if(realDraftState.selected.every(Boolean)){
+  if(realDraftState.round>=2){saveRealOnlineResume();renderRealOnlineDraft();setTimeout(()=>maybeStartRealOnlineResources(),0);return}
+  const old=realDraftState.packs.map(x=>[...x]),next=Array.from({length:realDraftState.playerCount},()=>[]);for(let x=0;x<realDraftState.playerCount;x++)next[(x+1)%realDraftState.playerCount]=old[x];
+  realDraftState.packs=next;realDraftState.round++;realDraftState.selected=Array(realDraftState.playerCount).fill(false);
+ }
+ saveRealOnlineResume();renderRealOnlineDraft();
+}
+async function maybeStartRealOnlineDraft(){
+ if(realOnlineDraftMode||realDraftInitSent||!realLobbyChannel)return;const ps=realLobbyPlayers();if(!ps.length||!ps.every(x=>x.char_ready&&x.character))return;if(!isRealLobbyHost())return;
+ if(realOnlineCharacterDuplicate(ps)){const st=q('#onlineCharStatus');if(st)st.textContent='同じキャラクターを選択しているプレイヤーがいます。重複を解消してください。';return;}
+ realDraftInitSent=true;const state=makeRealDraftInitialState();realLobbyPhase='draft';applyRealDraftInit(state);try{await broadcastRealPhase('draft');await realLobbyChannel.send({type:'broadcast',event:'draft_init',payload:{state}})}catch(e){console.error(e);realDraftInitSent=false}
+}
+function renderRealOnlineDraft(){
+ if(!realDraftState)return;const p=realMyPlayerIndex(),ps=realLobbyPlayers(),cards=q('#onlineDraftCards'),confirm=q('#onlineDraftConfirm');if(p<0||!cards)return;
+ q('#onlineDraftRound').textContent=realDraftState.round+1;q('#onlineDraftWho').textContent='P'+(p+1)+' '+(realPlayerName(p)||realLobbyName)+' ／ あなたのドラフト';q('#onlineDraftProgress').textContent=realDraftState.selected.filter(Boolean).length+'/'+realDraftState.playerCount+'人選択済み';
+ const own=(realDraftState.hands[p]||[]).map(stdCardFromKey).filter(Boolean);let ownedBox=q('#onlineDraftOwned');ownedBox.innerHTML='<strong>獲得済み '+own.length+'/3枚</strong>';if(own.length){let og=document.createElement('div');og.className='online-resource-card-grid';og.style.marginTop='7px';own.forEach(c=>{let w=document.createElement('div');w.className='online-info-card';let cv=card(c,1,false),ef=document.createElement('div');ef.className='card-effect-inline';ef.replaceChildren(cardInfoSections(c));w.append(cv,ef);og.appendChild(w)});ownedBox.appendChild(og)}else ownedBox.insertAdjacentHTML('beforeend','<div class="small">まだ獲得していません。</div>');cards.innerHTML='';
+ if(realDraftState.selected[p]){let x=document.createElement('div');x.className='notice';x.style.gridColumn='1/-1';x.textContent=realDraftState.round>=2&&realDraftState.selected.every(Boolean)?'ドラフト完了。全員が3枚獲得しました。':'この巡は選択済みです。ほかのプレイヤーの選択を待っています。';cards.appendChild(x)}else (realDraftState.packs[p]||[]).forEach((key,i)=>{let c=stdCardFromKey(key);if(!c)return;let b=document.createElement('button');b.type='button';b.className='online-info-card online-draft-card';if(realDraftPendingIndex===i)b.classList.add('selected');let cv=card(c,1,false);let ef=document.createElement('div');ef.className='card-effect-inline';ef.replaceChildren(cardInfoSections(c));b.append(cv,ef);b.onclick=()=>{realDraftPendingIndex=i;renderRealOnlineDraft()};cards.appendChild(b)});
+ if(confirm){confirm.disabled=realDraftState.selected[p]||realDraftPendingIndex===null;confirm.textContent=realDraftState.selected[p]?'選択済み':'このカードを選択'}
+ const st=q('#onlineDraftStatus');if(st)st.textContent=realDraftState.round>=2&&realDraftState.selected.every(Boolean)?'ドラフト完了。初期資源選択へ移動します。':realDraftState.selected[p]?'ほかのプレイヤーの選択を待っています。':'カードを1枚タップしてから確定してください。';
+}
+async function confirmRealOnlineDraftPick(){
+ if(!realDraftState)return;const p=realMyPlayerIndex(),i=realDraftPendingIndex;if(p<0||i===null||realDraftState.selected[p]||!realDraftState.packs[p]?.[i])return;const payload={playerIndex:p,cardIndex:i,round:realDraftState.round};applyRealDraftPick(payload);try{await realLobbyChannel.send({type:'broadcast',event:'draft_pick',payload})}catch(e){console.error(e)}
+}
+
+// Ver.3.9: 実オンライン・初期資源選択同期。
+function makeRealResourceInitialState(){
+ const n=realDraftState?.playerCount||realLobbyPlayers().length;
+ return {roster:(realDraftState?.roster||realLobbyPlayers()).map(p=>({client_id:p.client_id,name:p.name,charId:p.charId||p.character?.charId||'P1'})),choices:Array.from({length:n},()=>({y:0,p:0,r:0})),confirmed:Array(n).fill(false),playerCount:n,hands:(realDraftState?.hands||[]).map(x=>[...x])};
+}
+function applyRealResourceInit(state){
+ if(!state||!Array.isArray(state.choices))return;realResourceState=JSON.parse(JSON.stringify(state));realOnlineResourceMode=true;realOnlineDraftMode=false;realLobbyPhase='resource';saveRealOnlineResume();
+ q('#onlineDraftScreen')?.classList.add('hidden');q('#onlineCharacterScreen')?.classList.add('hidden');q('#onlineRealLobby')?.classList.add('hidden');q('#onlineResourceScreen')?.classList.remove('hidden');
+ const badge=q('#onlineResourceScreen .lobby-debug-badge');if(badge){badge.textContent='ONLINE';badge.style.background='#176b3a'}
+ const dbg=q('#onlineResourceScreen .online-resource-debug');if(dbg)dbg.style.display='none';
+ const notice=q('#onlineResourceScreen .notice');if(notice)notice.textContent='ドラフトで獲得した自分の3枚を確認し、資金・食料・兵力を合計'+gameSettings.initialResources+'個選んでください。';
+ renderRealOnlineResources();
+}
+async function maybeStartRealOnlineResources(){
+ if(realOnlineResourceMode||realResourceInitSent||!realLobbyChannel||!realDraftState)return;
+ if(!(realDraftState.round>=2&&realDraftState.selected.every(Boolean))||!isRealLobbyHost())return;
+ realResourceInitSent=true;const state=makeRealResourceInitialState();realLobbyPhase='resource';applyRealResourceInit(state);
+ try{await broadcastRealPhase('resource');await realLobbyChannel.send({type:'broadcast',event:'resource_init',payload:{state}})}catch(e){console.error(e);realResourceInitSent=false}
+}
+function renderRealOnlineResources(){
+ if(!realResourceState)return;const p=realMyPlayerIndex(),ps=realLobbyPlayers();if(p<0)return;
+ const v=realResourceState.choices[p]||{y:0,p:0,r:0},total=v.y+v.p+v.r,remain=gameSettings.initialResources-total;
+ const hand=q('#onlineResourceHand'),choices=q('#onlineResourceChoices'),confirm=q('#onlineResourceConfirm');if(!hand||!choices)return;
+ q('#onlineResourceWho').textContent='P'+(p+1)+' '+(realPlayerName(p)||realLobbyName)+' ／ あなたの初期資源';
+ hand.innerHTML='<strong>現在の手札</strong><div class="small">ドラフトで獲得した3枚を確認して資源を選べます。</div>';
+ let hg=document.createElement('div');hg.className='online-resource-card-grid';(realResourceState.hands[p]||[]).map(stdCardFromKey).filter(Boolean).forEach(c=>{let w=document.createElement('div');w.className='online-info-card';let cv=card(c,1,false);let ef=document.createElement('div');ef.className='card-effect-inline';ef.replaceChildren(cardInfoSections(c));w.append(cv,ef);hg.appendChild(w)});hand.appendChild(hg);
+ choices.innerHTML='<div><strong>初期資源</strong>　残り <strong>'+remain+'</strong> / '+gameSettings.initialResources+'</div>';let row=document.createElement('div');row.className='turnstart-buttons';row.style.marginTop='9px';
+ [['y','💰 資金'],['p','🍖 食料'],['r','⚔️ 兵力']].forEach(([c,label])=>{let b=document.createElement('button');b.type='button';b.className='secondary';b.textContent=label+' '+v[c];b.disabled=realResourceState.confirmed[p]||remain<=0;b.onclick=()=>{if(realResourceState.confirmed[p]||v.y+v.p+v.r>=gameSettings.initialResources)return;v[c]++;saveRealOnlineResume();renderRealOnlineResources()};row.appendChild(b)});
+ let reset=document.createElement('button');reset.type='button';reset.className='secondary';reset.textContent='選び直す';reset.disabled=realResourceState.confirmed[p]||total===0;reset.onclick=()=>{realResourceState.choices[p]={y:0,p:0,r:0};saveRealOnlineResume();renderRealOnlineResources()};row.appendChild(reset);choices.appendChild(row);
+ if(confirm){confirm.disabled=realResourceState.confirmed[p]||total!==gameSettings.initialResources;confirm.textContent=realResourceState.confirmed[p]?'確定済み':'この資源配分で確定'}
+ const done=realResourceState.confirmed.filter(Boolean).length,st=q('#onlineResourceStatus');if(st)st.textContent=done+'/'+realResourceState.playerCount+'人確定済み。'+(done===realResourceState.playerCount?' 全員の初期資源が確定しました。次はメインゲーム同期です。':'');
+}
+function applyRealResourceConfirm(payload){
+ if(!realResourceState||!payload)return;const p=+payload.playerIndex;if(p<0||p>=realResourceState.playerCount||realResourceState.confirmed[p])return;const v=payload.choice||{},choice={y:+v.y||0,p:+v.p||0,r:+v.r||0};if(choice.y+choice.p+choice.r!==gameSettings.initialResources)return;realResourceState.choices[p]=choice;realResourceState.confirmed[p]=true;saveRealOnlineResume();renderRealOnlineResources();if(realResourceState.confirmed.every(Boolean))setTimeout(()=>maybeStartRealOnlineMain(),0);
+}
+async function confirmRealOnlineResources(){
+ if(!realResourceState)return;const p=realMyPlayerIndex(),v=realResourceState.choices[p];if(p<0||realResourceState.confirmed[p]||!v||v.y+v.p+v.r!==gameSettings.initialResources)return;const payload={playerIndex:p,choice:{...v}};applyRealResourceConfirm(payload);try{await realLobbyChannel.send({type:'broadcast',event:'resource_confirm',payload})}catch(e){console.error(e)}
+}
+
+// Ver.3.11: 実オンライン・メインゲーム同期。
+function realMainSnapshot(){
+ return {turnClock:turnClockSnapshot(),turnClockStartPending,turnClockChoice,turnStartPostPending,depressionStartSuppressed,lordOracleUsed,lordTributeUsed,stdAbilityUsed,nextHireMinRarity,nextHireExtra,realMainRoster:realMainRoster.map((p,i)=>({client_id:p.client_id,name:p.name,charId:characters[i]||p.charId||'P1'})),gameSettings:{...gameSettings,enabledPacks:[...(gameSettings.enabledPacks||[])],enabledRulePacks:[...(gameSettings.enabledRulePacks||[])],activeRuleCards:[...(gameSettings.activeRuleCards||[])]},playerCount,characters,hands,powers,installed,temporary,elekiterUsed,commandCounts,komePlace,pendingParkPlayers,pendingParkTaken,breadDeck,breadDiscard,breadHands,employees,lordFirstBreadUsed,lordOverclockUsed,pendingOverclockChoices,graveyardUsed,publicMarketUsed,market,discard,deck,turn,dice,legends,legendTakenThisTurn,endgameStarter,endgameRemaining,gameEnded,pendingLordResource,pendingNanban,pendingTenkuCat,pendingSSRBonus,pendingCastResourceChoices,hiredThisTurn,organizationUsed,fusionUsedThisTurn,nightEscapePostAvailable,nightEscapeResetNext,debugVP,copiedAbility,copiedOracleUsed,copiedTributeUsed,triggerNotices,dialogLog};
+}
+function applyRealMainSnapshot(st){
+ if(!st||!turnClockAcceptSnapshot(st))return;realMainApplying=true;
+ if(Array.isArray(st.realMainRoster)&&st.realMainRoster.length)realMainRoster=st.realMainRoster.map((p,i)=>({client_id:String(p.client_id||''),name:String(p.name||''),charId:String(st.characters?.[i]||p.charId||'P1')}));
+ if(st.gameSettings){Object.assign(gameSettings,st.gameSettings);gameSettings.enabledPacks=[...(st.gameSettings.enabledPacks||[])];gameSettings.enabledRulePacks=[...(st.gameSettings.enabledRulePacks||[])];gameSettings.activeRuleCards=[...(st.gameSettings.activeRuleCards||[])];syncMarketTargetUI();}
+ for(const k of ['turnClockStartPending','turnClockChoice','turnStartPostPending','depressionStartSuppressed','lordOracleUsed','lordTributeUsed','stdAbilityUsed','nextHireMinRarity','nextHireExtra','playerCount','characters','hands','powers','installed','temporary','elekiterUsed','commandCounts','komePlace','pendingParkPlayers','pendingParkTaken','breadDeck','breadDiscard','breadHands','employees','lordFirstBreadUsed','lordOverclockUsed','pendingOverclockChoices','graveyardUsed','publicMarketUsed','market','discard','deck','turn','dice','legends','legendTakenThisTurn','endgameStarter','endgameRemaining','gameEnded','pendingLordResource','pendingNanban','pendingTenkuCat','pendingSSRBonus','pendingCastResourceChoices','hiredThisTurn','organizationUsed','fusionUsedThisTurn','nightEscapePostAvailable','nightEscapeResetNext','debugVP','copiedAbility','copiedOracleUsed','copiedTributeUsed','triggerNotices','dialogLog'])if(Object.prototype.hasOwnProperty.call(st,k))eval(k+'=st[k]');
+ if(realMainRoster.length===playerCount&&realMainRoster.every(p=>p.charId&&p.charId!=='P1'))characters=realMainRoster.map(p=>p.charId);
+ realOnlineMainMode=true;realLobbyPhase='main';viewer=Math.max(0,realMyPlayerIndex());
+ q('#onlineResourceScreen')?.classList.add('hidden');q('#onlineDraftScreen')?.classList.add('hidden');q('#onlineCharacterScreen')?.classList.add('hidden');q('#onlineRealLobby')?.classList.add('hidden');q('#mainApp')?.classList.remove('entry-locked');q('#setup')?.classList.add('hidden');q('#draft')?.classList.add('hidden');q('#gamestartsetup')?.classList.add('hidden');q('#game')?.classList.remove('hidden');q('#start').style.display='none';
+ renderGame();if(gameEnded){const end=q('#endturn'),reroll=q('#reroll');if(end)end.disabled=true;if(reroll)reroll.disabled=true;}saveRealOnlineResume();realMainApplying=false;turnClockAfterSnapshot();
+}
+async function broadcastRealMainState(actionOwner=turn){
+ if(!realOnlineMainMode||realMainApplying||!realLobbyChannel||turnClockNet?.completing)return;
+ if(viewer!==actionOwner)return;
+ turnClockPublishAction(false);
+}
+async function broadcastRealGameFinished(actionOwner){return broadcastRealMainState(actionOwner)}
+function prepareRealMainGame(){
+ applyRealOnlineRules();resolveActiveRuleCards();
+ const n=realResourceState.playerCount;
+ const ps=realResourceState.roster?.length===n?realResourceState.roster:realDraftState?.roster?.length===n?realDraftState.roster:realLobbyPlayers();
+ realMainRoster=ps.slice(0,n).map(p=>({client_id:p.client_id,name:p.name,charId:p.charId||p.character?.charId||'P1'}));
+ playerCount=n;characters=realMainRoster.map(x=>x.charId);characterMode=characters[0]||'P1';hands=(realResourceState.hands||[]).map(a=>a.map(stdCardFromKey).filter(Boolean));packs=Array.from({length:n},()=>[]);powers=realResourceState.choices.map(v=>({...v}));installed=Array.from({length:n},()=>[]);temporary=Array.from({length:n},()=>[]);elekiterUsed=Array(n).fill(false);commandCounts=Array(n).fill(0);komePlace=100;pendingParkPlayers=[];pendingParkTaken=[];breadDeck=makeBreadDeck();breadDiscard=[];breadHands=Array.from({length:n},()=>[]);employeeDeck=[];employees=Array.from({length:n},()=>[]);lordFirstBreadUsed=Array(n).fill(false);lordOverclockUsed=Array(n).fill(false);pendingOverclockChoices=[];debugVP=Array(n).fill(0);graveyardUsed=Array(n).fill(false);publicMarketUsed=Array(n).fill(false);hiredThisTurn=false;organizationUsed=[];nightEscapePostAvailable=false;nightEscapeResetNext=Array(playerCount).fill(false);fusionUsedThisTurn=false;pendingSSRBonus=0;pendingCastResourceChoices=[];market=[];discard=[];selectedMarketKey=null;marketUndoHistory=[];commandUndoHistory=[];dialogLog=[];turn=0;dice=[];resetGameEndState();
+ initLegends();let dealt=[...(realDraftState?.hands||[]).flat(),...(realDraftState?.packs||[]).flat()],counts={};dealt.forEach(k=>counts[k]=(counts[k]||0)+1);let unused=STD.filter(c=>{if(counts[c.key]){counts[c.key]--;return false}return true});deck=sh([...unused,...normalCardsForDeck(gameSettings.deckId),...makeRandomizerCards()]);resetNormalCardAudit();saveDebugInitialMarketSnapshot();refillTo8();turn=chooseFirstPlayer();beginTurn();realOnlineMainMode=true;viewer=0;
+}
+async function maybeStartRealOnlineMain(){
+ if(!realResourceState||!realResourceState.confirmed.every(Boolean)||realMainStarted||!isRealLobbyHost())return;
+ if(realLobbyPlayers().some(p=>p.clock_protocol!==1)){setRealLobbyConnection('全員が Ver.0.3.221 以降へ再読み込みしてから対戦を開始してください。','error');return}
+ realMainStarted=true;
+ prepareRealMainGame();
+ realLobbyPhase='main';
+ viewer=Math.max(0,realMyPlayerIndex());
+ // Ver.3.31: HOSTも参加者と同じメイン画面遷移処理を通す。
+ // 以前はHOSTだけ資源選択画面が前面に残り、ゲーム自体は開始済みでもメインへ行けなかった。
+ turnClockInitializeAuthority();
+ const initialState=realMainSnapshot();
+ applyRealMainSnapshot(initialState);
+ try{
+  await broadcastRealPhase('main');
+  await realLobbyChannel.send({type:'broadcast',event:'main_init',payload:{state:initialState}});
+ }catch(e){console.error(e);realMainStarted=false}
+}
+// Ver.0.3.216: 相手ターンの閲覧操作とゲーム進行操作を分離する。
+// 閲覧専用エリアと公開カード・レジェンドの詳細は許可し、獲得や設置は各操作の権限判定で防ぐ。
+document.addEventListener('click',e=>{
+ if(!realOnlineMainMode||viewer===turn)return;
+ const t=e.target instanceof Element?e.target:null;if(!t||!t.closest('#game'))return;
+ if(t.closest('#showHireCardList,#showCardList,#showDiscard,#showDialogLog,#showActiveRules,#mainLeaveRoom,#mainReturnLobby,#opponentTurnView,#finalplayers,#market .card,#legendarea .card,#legends .card'))return;
+ e.preventDefault();e.stopImmediatePropagation();
+},true);
+// メイン画面で現在手番の本人が操作した結果を共有する。モーダル内の選択も同じ仕組みで同期する。
+// Ver.3.29: 操作のたびに同期を大量送信しない。短時間の連続クリックを1回にまとめ、同一状態は再送しない。
+let realMainBroadcastTimer=null;
+// Ver.0.3.163: 操作開始時の手番所有者を保持する。終了後は turn が次の人に変わるため、
+// 送信時に viewer===turn を再判定すると、最も重要なターン更新が全員へ送れない。
+function scheduleRealMainBroadcast(e){
+ if(!realOnlineMainMode||realMainApplying||viewer!==turn)return;
+ const t=e?.target instanceof Element?e.target:null;
+ if(!t||!t.closest('#game, .imgmodal, #limit'))return;
+ const actionOwner=turn;
+ clearTimeout(realMainBroadcastTimer);
+ realMainBroadcastTimer=setTimeout(async()=>{
+  if(!realOnlineMainMode||realMainApplying)return;
+  await broadcastRealMainState(actionOwner);
+ },0);
+}
+document.addEventListener('click',scheduleRealMainBroadcast,true);
+
+function openRealOnlineCharacterScreen(){
+ if(!realLobbyChannel)return;realOnlineCharacterMode=true;realLobbyCharPending=null;q('#onlineRealLobby')?.classList.add('hidden');q('#onlineCharacterScreen')?.classList.remove('hidden');
+ const sub=q('#onlineCharSub'),badge=q('#onlineCharBadge'),notice=q('#onlineCharNotice'),dbg=q('#onlineCharDebugSwitch');if(sub)sub.textContent='オンラインキャラクター選択';if(badge){badge.textContent='ONLINE';badge.style.background='#176b3a'}if(notice)notice.textContent='自分のキャラクターを選択してください。選択状況は同じ部屋の全プレイヤーへリアルタイムで共有されます。';if(dbg)dbg.style.display='none';renderRealOnlineCharacterScreen();
+}
+function closeRealOnlineCharacterScreen(){realOnlineCharacterMode=false;q('#onlineCharacterScreen')?.classList.add('hidden');q('#onlineRealLobby')?.classList.remove('hidden');renderRealLobby()}
+function refreshRealLobbySubmitDeckSelect(){
+ const sel=q('#realLobbySubmitDeck');if(!sel)return;const saves=getSavedDecks(),names=Object.keys(saves);sel.innerHTML='';
+ if(!names.length){let o=document.createElement('option');o.value='';o.textContent='保存デッキなし';sel.appendChild(o);sel.disabled=true}else{sel.disabled=false;names.forEach(name=>{let o=document.createElement('option');o.value=name;o.textContent=name;sel.appendChild(o)})}
+ const btn=q('#realLobbySubmitDeckBtn');if(btn)btn.disabled=!names.length;
+}
+function saveSharedDeckLocally(sub){
+ if(!sub?.name||!sub?.config)return;let saves=getSavedDecks();if(saves[sub.name]&&!turnClockConfirm('「'+sub.name+'」は保存済みです。上書きしますか？'))return;saves[sub.name]=cloneCustomDeck(sub.config);if(putSavedDecks(saves)){refreshRealLobbySubmitDeckSelect();alert('「'+sub.name+'」を保存しました。')}
+}
+async function submitRealLobbyDeck(){
+ const name=q('#realLobbySubmitDeck')?.value,saves=getSavedDecks(),cfg=saves[name];if(!name||!cfg)return alert('提出する保存デッキを選んでください。');
+ const sub={ownerId:realLobbyClientId,ownerName:realLobbyName,name,config:cloneCustomDeck(cfg)};realDeckSubmissions[realLobbyClientId]=sub;renderRealLobby();
+ if(realLobbyChannel)await realLobbyChannel.send({type:'broadcast',event:'deck_submission',payload:{submission:sub}});
+}
+async function selectRealLobbyDeck(ownerId){
+ if(!isRealLobbyHost())return;if(String(ownerId).startsWith('preset:')){let id=String(ownerId).slice(7);if(!DECK_PRESETS[id])return;realOnlineDeckId=id;realOnlineDeckName=standardDeckName(id);realOnlineDeckConfig=null}else{let sub=realDeckSubmissions[ownerId];if(!sub)return;realOnlineDeckId='custom';realOnlineDeckName=sub.name;realOnlineDeckConfig=cloneCustomDeck(sub.config)}
+ gameSettings.deckId=realOnlineDeckId;saveRealOnlineResume();renderRealLobby();if(realLobbyChannel)await realLobbyChannel.send({type:'broadcast',event:'deck_config',payload:{deckId:realOnlineDeckId,deckName:realOnlineDeckName,deckConfig:realOnlineDeckConfig}})
+}
+function renderRealLobbyDeckCandidates(){
+ const root=q('#realLobbyDeckCandidates');if(!root)return;root.innerHTML='';const rows=[...standardDeckPresets().map(d=>({key:d.id,name:d.name,ownerName:'固定デッキ',standard:true})),...Object.values(realDeckSubmissions)];
+ rows.forEach(sub=>{let row=document.createElement('div');row.className='row';row.style.cssText='justify-content:space-between;gap:8px;padding:7px 0;border-top:1px solid #ddd';let left=document.createElement('div');let selected=sub.standard?realOnlineDeckId===sub.key:realOnlineDeckId==='custom'&&realOnlineDeckName===sub.name&&realOnlineDeckConfig&&JSON.stringify(realOnlineDeckConfig)===JSON.stringify(sub.config);left.innerHTML='<strong>'+(selected?'✓ ':'')+escapeHtml(sub.name)+'</strong><div class="small">'+escapeHtml(sub.ownerName)+(sub.ownerId===realLobbyClientId?'（あなた）':'')+'</div>';row.appendChild(left);let acts=document.createElement('div');acts.className='row';acts.style.justifyContent='flex-end';if(!sub.standard){let save=document.createElement('button');save.type='button';save.className='secondary';save.textContent='保存';save.onclick=()=>saveSharedDeckLocally(sub);acts.appendChild(save)}if(isRealLobbyHost()){let use=document.createElement('button');use.type='button';use.className=selected?'secondary':'primary';use.textContent=selected?'使用中':'このデッキを使用';use.disabled=selected;use.onclick=()=>selectRealLobbyDeck(sub.standard?'preset:'+sub.key:sub.ownerId);acts.appendChild(use)}row.appendChild(acts);root.appendChild(row)})
+}
+function applyRealOnlineRules(){
+ gameSettings.winVP=Math.max(1,+realOnlineRules.winVP||20);gameSettings.marketTypes=Math.max(1,Math.floor(Number(realOnlineRules.marketTypes)||8));realOnlineRules.marketTypes=gameSettings.marketTypes;gameSettings.initialResources=Math.max(0,+realOnlineRules.initialResources||0);gameSettings.hireLimit=Math.max(0,+realOnlineRules.hireLimit||0);gameSettings.legendSlots=Math.max(1,Math.min(legendSlotMax(realOnlineDeckId),Math.floor(Number(realOnlineRules.legendSlots)||1)));realOnlineRules.legendSlots=gameSettings.legendSlots;gameSettings.randomizerEnabled=!!realOnlineRules.randomizerEnabled;gameSettings.randomizerCount=clampedRandomizerCount(realOnlineRules.randomizerCount);realOnlineRules.randomizerCount=gameSettings.randomizerCount;gameSettings.enabledPacks=[];if(realOnlineRules.pack1Enabled)gameSettings.enabledPacks.push('pack1');if(realOnlineRules.pack2Enabled)gameSettings.enabledPacks.push('pack2');gameSettings.enabledRulePacks=realOnlineRules.rulesPack1Enabled?['rules_pack1']:[];gameSettings.ruleCardMode=realOnlineRules.ruleCardMode||'select';gameSettings.ruleCardChoice=realOnlineRules.ruleCardChoice||'RC1';syncMarketTargetUI();
+}
+function renderRealLobbyRules(){
+ applyRealOnlineRules();const host=isRealLobbyHost(),map=[['#realRuleWinVP','winVP'],['#realRuleMarketTypes','marketTypes'],['#realRuleInitialResources','initialResources'],['#realRuleHireLimit','hireLimit']];fillLegendSlotSelect('#realRuleLegendSlots',realOnlineDeckId,realOnlineRules.legendSlots);let lsel=q('#realRuleLegendSlots');if(lsel)lsel.disabled=!host;
+ map.forEach(([sel,key])=>{let el=q(sel);if(!el)return;el.value=realOnlineRules[key];el.disabled=!host});let re=q('#realRuleRandomizer'),rc=q('#realRuleRandomizerCount');if(re){re.checked=!!realOnlineRules.randomizerEnabled;re.disabled=!host}if(rc){rc.value=clampedRandomizerCount(realOnlineRules.randomizerCount);rc.max=implementedNormalCards().length;rc.disabled=!host}let pk=q('#realRulePack1');if(pk){pk.checked=!!realOnlineRules.pack1Enabled;pk.disabled=!host}let pk2=q('#realRulePack2');if(pk2){pk2.checked=!!realOnlineRules.pack2Enabled;pk2.disabled=!host}let rpk=q('#realRuleRulesPack1'),rcm=q('#realRuleRCMode'),rcc=q('#realRuleRCChoice');fillRCSelect('#realRuleRCChoice');if(rpk){rpk.checked=!!realOnlineRules.rulesPack1Enabled;rpk.disabled=!host}if(rcm){rcm.value=realOnlineRules.ruleCardMode||'select';rcm.disabled=!host}if(rcc){rcc.value=realOnlineRules.ruleCardChoice||'RC1';rcc.disabled=!host||(realOnlineRules.ruleCardMode==='random')}let st=q('#realLobbyRulesStatus');if(st)st.textContent=host?'あなたがHOSTです。変更すると全員へ反映されます。':'HOSTが設定中です。';
+}
+async function changeRealLobbyRule(key,value){
+ if(!isRealLobbyHost()||!Object.prototype.hasOwnProperty.call(realOnlineRules,key))return;if(key==='randomizerEnabled'||key==='pack1Enabled'||key==='pack2Enabled'||key==='rulesPack1Enabled')realOnlineRules[key]=!!value;else if(key==='ruleCardMode'||key==='ruleCardChoice')realOnlineRules[key]=String(value);else{let n=Math.floor(Number(value));if(!Number.isFinite(n))return;n=(key==='winVP'||key==='marketTypes')?Math.max(1,n):Math.max(0,n);if(key==='randomizerCount')n=clampedRandomizerCount(n);if(key==='legendSlots')n=Math.min(legendSlotMax(realOnlineDeckId),Math.max(1,n));realOnlineRules[key]=n}applyRealOnlineRules();saveRealOnlineResume();renderRealLobbyRules();if(realLobbyChannel)await realLobbyChannel.send({type:'broadcast',event:'rules_config',payload:{rules:{...realOnlineRules}}});
+}
+async function broadcastRealRules(){if(isRealLobbyHost()&&realLobbyChannel)await realLobbyChannel.send({type:'broadcast',event:'rules_config',payload:{rules:{...realOnlineRules}}})}
+function renderRealLobby(){
+ const box=q('#realLobbyPlayers'),status=q('#realLobbyStatus');if(!box)return;
+ const players=flattenLobbyPresence();box.innerHTML='';
+ if(!realLobbyHostId&&players.length)realLobbyHostId=players.find(x=>x.host_id)?.host_id||players[0].client_id;
+ if(players.length&&!players.some(x=>x.client_id===realLobbyHostId))reconcileRealLobbyHost();
+ for(let i=0;i<6;i++){let d=document.createElement('div'),p=players[i];d.className='lobby-player'+(p&&p.client_id===realLobbyClientId?' self':'')+(p&&p.client_id===realLobbyHostId?' host':'');if(p){d.innerHTML='<strong>P'+(i+1)+' '+escapeHtml(p.name)+(p.client_id===realLobbyHostId?' <span class="small">HOST</span>':'')+'</strong><div class="small" style="margin-top:4px">'+(p.client_id===realLobbyClientId?'あなた':'接続中')+'</div>';if(isRealLobbyHost()&&p.client_id!==realLobbyClientId){let kb=document.createElement('button');kb.type='button';kb.className='secondary';kb.style.marginTop='7px';kb.textContent='キック';kb.onclick=()=>kickRealLobbyPlayer(p.client_id,p.name);d.appendChild(kb)}}else{d.className+=' empty';d.innerHTML='<strong>P'+(i+1)+'</strong><div class="small" style="margin-top:4px">空き</div>'}box.appendChild(d)}
+ const myIndex=players.findIndex(x=>x.client_id===realLobbyClientId),btn=q('#realLobbyCharacterSelect');
+ const leaveBtn=q('#leaveRealLobby');if(leaveBtn)leaveBtn.textContent='部屋から退出';
+ if(btn){btn.style.display=isRealLobbyHost()?'':'none';btn.disabled=!isRealLobbyHost();}
+ if(status)status.textContent=myIndex>=0?(isRealLobbyHost()?'あなたは P'+(myIndex+1)+'／HOSTです。現在 '+players.length+'/6人。':'あなたは P'+(myIndex+1)+' です。現在 '+players.length+'/6人。ホストの開始を待っています。'):'参加情報を同期しています...';
+ if(players.length>6&&myIndex>=6){if(status)status.textContent='このルームは6人で満員です。別の合言葉を使用してください。';realLobbyChannel?.untrack().catch(()=>{});setRealLobbyConnection('満員','error')}
+ refreshRealLobbySubmitDeckSelect();renderRealLobbyDeckCandidates();renderRealLobbyRules();const deckEdit=q('#realLobbyEditDeck'),deckSt=q('#realLobbyDeckStatus');if(deckEdit)deckEdit.disabled=false;if(deckSt)deckSt.textContent='今回の使用デッキ：'+(realOnlineDeckId==='custom'?realOnlineDeckName:standardDeckName(realOnlineDeckId))+(isRealLobbyHost()?' ／ 候補から選択してください。':' ／ HOSTが最終決定します。');
+ saveRealOnlineResume();if(realOnlineCharacterMode)renderRealOnlineCharacterScreen();
+}
+async function broadcastRealDeckConfig(){renderRealLobby()}
+async function sendRealStateSync(){
+ if(!realLobbyChannel||!isRealLobbyHost())return;
+ const payload={phase:realLobbyPhase,hostId:realLobbyHostId,deckId:realOnlineDeckId,deckName:realOnlineDeckName,deckConfig:realOnlineDeckConfig,rules:realOnlineRules};
+ if(realLobbyPhase==='draft')payload.draftState=realDraftState;
+ if(realLobbyPhase==='resource')payload.resourceState=realResourceState;
+ if(realLobbyPhase==='main'){payload.mainState=realOnlineMainMode?realMainSnapshot():loadRealOnlineResume()?.mainState||null;}
+ try{await realLobbyChannel.send({type:'broadcast',event:'state_sync_response',payload})}catch(e){console.error(e)}
+}
+function applyRealStateSync(payload){
+ if(!payload)return;
+ if(realOnlineMainMode&&payload.hostId&&payload.hostId!==realLobbyHostId)return;
+ if(payload.hostId)realLobbyHostId=payload.hostId;
+ if(payload.rules){realOnlineRules={...realOnlineRules,...payload.rules};applyRealOnlineRules()}
+ if(payload.deckId){realOnlineDeckId=payload.deckId;realOnlineDeckName=payload.deckName||standardDeckName(payload.deckId);realOnlineDeckConfig=payload.deckConfig?cloneCustomDeck(payload.deckConfig):null;gameSettings.deckId=realOnlineDeckId}
+ const phase=payload.phase||'lobby';if(phase==='lobby'&&(realOnlineMainMode||loadRealOnlineResume()?.mainState))return;realLobbyPhase=phase;
+ if(phase==='main'&&payload.mainState){realMainStarted=true;applyRealMainSnapshot(payload.mainState)}
+ else if(phase==='resource'&&payload.resourceState)applyRealResourceInit(payload.resourceState);
+ else if(phase==='draft'&&payload.draftState)applyRealDraftInit(payload.draftState);
+ else if(phase==='character')openRealOnlineCharacterScreen();
+ else if(phase==='lobby'&&!realOnlineMainMode&&!loadRealOnlineResume()?.mainState)setRealOnlinePhase('lobby');
+ saveRealOnlineResume();
+}
+async function enterRealOnlineLobby(name,pass,resume=null){
+ const err=q('#entryError'),join=q('#entryJoin');if(err)err.textContent='';if(join){join.disabled=true;join.classList.add('entry-connecting');join.textContent='接続中...'}
+ try{
+  const client=ensureSupabaseClient();realLobbyName=name;realLobbyClientId=resume?.clientId||makeOnlineClientId();realLobbyRoomKey=resume?.roomKey||await makeRoomKey(pass);realLobbyCharSelection=resume?.character||null;realLobbyCharReady=!!resume?.charReady;realLobbyCharPending=null;realLobbyJoinedAt=resume?.joinedAt||'';realLobbyPhase=resume?.phase||'lobby';realLobbyHostId=resume?.hostId||'';realOnlineDeckId=resume?.deckId||'standard1';realOnlineDeckName=resume?.deckName||(realOnlineDeckId==='custom'?'カスタムデッキ':'スタンダード1');realOnlineDeckConfig=resume?.deckConfig?cloneCustomDeck(resume.deckConfig):null;if(realOnlineDeckConfig)customDeck=cloneCustomDeck(realOnlineDeckConfig);realOnlineRules={winVP:+resume?.rules?.winVP||20,marketTypes:+resume?.rules?.marketTypes||8,initialResources:Number.isFinite(+resume?.rules?.initialResources)?+resume.rules.initialResources:4,hireLimit:Number.isFinite(+resume?.rules?.hireLimit)?+resume.rules.hireLimit:3,legendSlots:Number.isFinite(+resume?.rules?.legendSlots)?+resume.rules.legendSlots:3,randomizerEnabled:!!resume?.rules?.randomizerEnabled,randomizerCount:clampedRandomizerCount(Number.isFinite(+resume?.rules?.randomizerCount)?+resume.rules.randomizerCount:15),pack1Enabled:!!resume?.rules?.pack1Enabled,pack2Enabled:!!resume?.rules?.pack2Enabled,rulesPack1Enabled:!!resume?.rules?.rulesPack1Enabled,ruleCardMode:resume?.rules?.ruleCardMode||'select',ruleCardChoice:resume?.rules?.ruleCardChoice||'RC1'};applyRealOnlineRules();gameSettings.deckId=realOnlineDeckId;realOnlineCharacterMode=false;realOnlineDraftMode=false;realDraftState=resume?.draftState||null;realDraftPendingIndex=null;realDraftInitSent=false;realOnlineResourceMode=false;realResourceState=resume?.resourceState||null;realResourceInitSent=false;realOnlineMainMode=false;realMainStarted=!!resume?.mainState;
+  if(realLobbyChannel){try{await realLobbyChannel.untrack()}catch(e){}try{await client.removeChannel(realLobbyChannel)}catch(e){}realLobbyChannel=null}
+  const topic='kokoryo-lobby-'+realLobbyRoomKey;
+  realLobbyChannel=client.channel(topic,{config:{presence:{key:realLobbyClientId}}});
+  realLobbyChannel.on('presence',{event:'sync'},()=>{reconcileRealLobbyHost();renderRealLobby();if(isRealLobbyHost())setTimeout(()=>broadcastRealRules(),50)});
+  realLobbyChannel.on('presence',{event:'join'},()=>{reconcileRealLobbyHost();renderRealLobby()});
+  realLobbyChannel.on('presence',{event:'leave'},()=>{reconcileRealLobbyHost();renderRealLobby()});
+  realLobbyChannel.on('broadcast',{event:'host_change'},({payload})=>{if(!payload?.hostId)return;realLobbyHostId=payload.hostId;turnClockHostChanged();saveRealOnlineResume();if(realOnlineMainMode)renderGame();else if(realOnlineCharacterMode)renderRealOnlineCharacterScreen();else renderRealLobby()});
+  realLobbyChannel.on('broadcast',{event:'room_closed'},()=>{});
+  realLobbyChannel.on('broadcast',{event:'player_kicked'},({payload})=>{if(payload?.targetId===realLobbyClientId&&payload?.byHostId===realLobbyHostId)teardownRealOnlineLobby('HOSTによって部屋からキックされました。').catch(console.error)});
+  realLobbyChannel.on('broadcast',{event:'phase_change'},({payload})=>{if(payload?.hostId)realLobbyHostId=payload.hostId;if(payload?.phase&&payload.phase!==realLobbyPhase)setRealOnlinePhase(payload.phase);if(payload?.phase==='main'&&!realOnlineMainMode)setTimeout(()=>{realLobbyChannel?.send({type:'broadcast',event:'state_sync_request',payload:{clientId:realLobbyClientId}}).catch(console.error)},180)});
+  realLobbyChannel.on('broadcast',{event:'return_lobby'},({payload})=>{if(payload?.hostId&&payload.hostId===realLobbyHostId)forceRealOnlineLobbyScreen()});
+  realLobbyChannel.on('broadcast',{event:'endgame_return_request'},({payload})=>{
+   if(!isRealLobbyHost()||!realOnlineMainMode||!gameEnded)return;
+   if(!flattenLobbyPresence().some(p=>p.client_id===payload?.clientId))return;
+   returnRealOnlineToLobby().catch(console.error);
+  });
+  realLobbyChannel.on('broadcast',{event:'deck_config'},({payload})=>{if(!payload)return;realOnlineDeckId=payload.deckId||'standard1';realOnlineDeckName=payload.deckName||(realOnlineDeckId==='custom'?'カスタムデッキ':standardDeckName(realOnlineDeckId));realOnlineDeckConfig=payload.deckConfig?cloneCustomDeck(payload.deckConfig):null;if(realOnlineDeckConfig)customDeck=cloneCustomDeck(realOnlineDeckConfig);gameSettings.deckId=realOnlineDeckId;saveRealOnlineResume();renderRealLobby()});
+  realLobbyChannel.on('broadcast',{event:'rules_config'},({payload})=>{if(!payload?.rules)return;realOnlineRules={winVP:Math.max(1,+payload.rules.winVP||20),marketTypes:Math.max(1,+payload.rules.marketTypes||8),initialResources:Math.max(0,+payload.rules.initialResources||0),hireLimit:Math.max(0,+payload.rules.hireLimit||0),legendSlots:Math.max(1,+payload.rules.legendSlots||1),randomizerEnabled:!!payload.rules.randomizerEnabled,randomizerCount:clampedRandomizerCount(Number.isFinite(+payload.rules.randomizerCount)?+payload.rules.randomizerCount:15),pack1Enabled:!!payload.rules.pack1Enabled,pack2Enabled:!!payload.rules.pack2Enabled,rulesPack1Enabled:!!payload.rules.rulesPack1Enabled,ruleCardMode:payload.rules.ruleCardMode||'select',ruleCardChoice:payload.rules.ruleCardChoice||'RC1'};applyRealOnlineRules();saveRealOnlineResume();renderRealLobbyRules()});
+  realLobbyChannel.on('broadcast',{event:'deck_submission'},({payload})=>{let sub=payload?.submission;if(!sub?.ownerId||!sub?.config)return;realDeckSubmissions[sub.ownerId]={ownerId:sub.ownerId,ownerName:sub.ownerName||'プレイヤー',name:sub.name||'カスタムデッキ',config:cloneCustomDeck(sub.config)};renderRealLobby()});
+  realLobbyChannel.on('broadcast',{event:'deck_submission_request'},async()=>{let sub=realDeckSubmissions[realLobbyClientId];if(sub&&realLobbyChannel)await realLobbyChannel.send({type:'broadcast',event:'deck_submission',payload:{submission:sub}})});
+  realLobbyChannel.on('broadcast',{event:'draft_init'},({payload})=>{if(!realOnlineDraftMode)applyRealDraftInit(payload?.state)});
+  realLobbyChannel.on('broadcast',{event:'draft_pick'},({payload})=>applyRealDraftPick(payload));
+  realLobbyChannel.on('broadcast',{event:'resource_init'},({payload})=>{if(!realOnlineResourceMode)applyRealResourceInit(payload?.state)});
+  realLobbyChannel.on('broadcast',{event:'resource_confirm'},({payload})=>applyRealResourceConfirm(payload));
+  realLobbyChannel.on('broadcast',{event:'main_init'},({payload})=>{realMainStarted=true;applyRealMainSnapshot(payload?.state)});
+  realLobbyChannel.on('broadcast',{event:'main_state'},({payload})=>turnClockReceiveState(payload));
+  realLobbyChannel.on('broadcast',{event:'clock_action'},({payload})=>turnClockReceiveAction(payload));
+  realLobbyChannel.on('broadcast',{event:'clock_pulse'},({payload})=>turnClockReceivePulse(payload));
+  realLobbyChannel.on('broadcast',{event:'main_game_finished'},({payload})=>turnClockReceiveState(payload));
+  realLobbyChannel.on('broadcast',{event:'park_pick'},({payload})=>turnClockReceivePark(payload));
+  realLobbyChannel.on('broadcast',{event:'state_sync_request'},()=>{setTimeout(()=>sendRealStateSync(),Math.min(500,Math.max(0,realMyPlayerIndex())*80))});
+  realLobbyChannel.on('broadcast',{event:'state_sync_response'},({payload})=>applyRealStateSync(payload));
+  q('#entryScreen')?.classList.add('hidden');q('#onlineRealLobby')?.classList.remove('hidden');
+  const label=q('#realLobbyRoomLabel');if(label)label.textContent='同じ合言葉のプレイヤーと接続';setRealLobbyConnection('Supabaseへ接続中...');renderRealLobby();
+  await new Promise((resolve,reject)=>{let done=false;const timer=setTimeout(()=>{if(!done){done=true;reject(new Error('接続がタイムアウトしました。'))}},12000);realLobbyChannel.subscribe(async status=>{if(done)return;if(status==='SUBSCRIBED'){try{if(!realLobbyJoinedAt)realLobbyJoinedAt=new Date().toISOString();await trackRealLobbyPresence();await realLobbyChannel.send({type:'broadcast',event:'deck_submission_request',payload:{}});await new Promise(r=>setTimeout(r,180));let ps=flattenLobbyPresence();if(!realLobbyHostId){realLobbyHostId=ps.find(x=>x.host_id)?.host_id||(ps[0]?.client_id||realLobbyClientId);await trackRealLobbyPresence()}const hostPresence=ps.find(x=>x.client_id===realLobbyHostId)||ps[0];if(resume?.mainState)realLobbyPhase='main';else if(hostPresence?.phase&&hostPresence.phase!=='lobby')realLobbyPhase=hostPresence.phase;saveRealOnlineResume();done=true;clearTimeout(timer);setRealLobbyConnection('接続済み','connected');renderRealLobby();try{await realLobbyChannel.send({type:'broadcast',event:'state_sync_request',payload:{clientId:realLobbyClientId}})}catch(e){console.error(e)}if(realLobbyPhase!=='lobby')setTimeout(()=>{if(realLobbyPhase==='main'&&!realOnlineMainMode){const r=loadRealOnlineResume();if(r?.mainState)applyRealMainSnapshot(r.mainState)}else setRealOnlinePhase(realLobbyPhase)},500);resolve()}catch(e){done=true;clearTimeout(timer);reject(e)}}else if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'){done=true;clearTimeout(timer);reject(new Error('Realtime接続に失敗しました: '+status))}})});
+ }catch(e){console.error(e);if(err)err.textContent='オンライン接続に失敗しました。'+(e?.message?' '+e.message:'');q('#onlineRealLobby')?.classList.add('hidden');q('#entryScreen')?.classList.remove('hidden');setRealLobbyConnection('未接続','error')}
+ finally{if(join){join.disabled=false;join.classList.remove('entry-connecting');join.textContent='部屋に入る'}}
+}
+async function teardownRealOnlineLobby(message=''){
+ try{if(realLobbyChannel){await realLobbyChannel.untrack();if(sbClient)await sbClient.removeChannel(realLobbyChannel)}}catch(e){console.warn(e)}
+ clearRealOnlineResume();realLobbyChannel=null;realLobbyRoomKey='';realLobbyName='';realLobbyCharSelection=null;realLobbyCharReady=false;realLobbyCharPending=null;realLobbyJoinedAt='';realOnlineCharacterMode=false;realOnlineDraftMode=false;realDraftState=null;realDraftPendingIndex=null;realDraftInitSent=false;realOnlineResourceMode=false;realResourceState=null;realResourceInitSent=false;realOnlineMainMode=false;realMainStarted=false;realMainRoster=[];realLobbyPhase='lobby';realLobbyHostId='';realOnlineDeckId='standard1';realOnlineDeckName='スタンダード1';realOnlineDeckConfig=null;realDeckSubmissions={};
+ q('#onlineCharacterScreen')?.classList.add('hidden');q('#onlineDraftScreen')?.classList.add('hidden');q('#onlineResourceScreen')?.classList.add('hidden');q('#game')?.classList.add('hidden');q('#onlineRealLobby')?.classList.add('hidden');q('#mainApp')?.classList.add('entry-locked');q('#entryScreen')?.classList.remove('hidden');const err=q('#entryError');if(err)err.textContent=message;setRealLobbyConnection('未接続');
+}
+async function leaveRealOnlineLobby(){
+ if(!realLobbyChannel)return;
+ if(!turnClockConfirm('部屋から退出しますか？'))return;
+ const wasHost=isRealLobbyHost();
+ if(wasHost){
+  const players=flattenLobbyPresence().filter(p=>p.client_id!==realLobbyClientId);
+  if(players.length){
+   const nextHost=players[0].client_id;
+   realLobbyHostId=nextHost;
+   try{
+    await realLobbyChannel.send({type:'broadcast',event:'host_change',payload:{hostId:nextHost}});
+   }catch(e){console.error(e)}
+  }
+ }
+ await teardownRealOnlineLobby();
+}
+async function kickRealLobbyPlayer(clientId,name){
+ if(!isRealLobbyHost()||!clientId||clientId===realLobbyClientId)return;
+ if(!turnClockConfirm((name||'このプレイヤー')+'をキックしますか？'))return;
+ try{if(realLobbyChannel)await realLobbyChannel.send({type:'broadcast',event:'player_kicked',payload:{targetId:clientId,byHostId:realLobbyClientId}})}catch(e){console.error(e)}
+}
+// Ver.3.28: リロード時は明示的にuntrackしない。退出ボタン時のみteardownでuntrackする。
+// これによりHOSTのリロードを通常退出と誤認してHOST権限を譲渡しない。
+
+function enterOnlineDebugLobby(){
+ botMatchMode=false;onlineDebugMode=true; debugLocalMode=false; onlineDebugPlayers=['バレンタイン']; updateDebugCommandVisibility();
+ q('#entryScreen')?.classList.add('hidden'); q('#onlineDebugLobby')?.classList.remove('hidden'); renderOnlineDebugLobby();
+}
+function leaveOnlineDebugLobby(){botMatchMode=false;
+ onlineDebugMode=false; onlineDebugPlayers=[]; updateDebugCommandVisibility(); q('#onlineDebugLobby')?.classList.add('hidden'); updateBotLobbyRestrictions(); q('#onlineCharacterScreen')?.classList.add('hidden'); q('#onlineDraftScreen')?.classList.add('hidden'); q('#onlineResourceScreen')?.classList.add('hidden'); q('#entryScreen')?.classList.remove('hidden');
+ const err=q('#entryError'); if(err)err.textContent='';
+}
+
+// Ver.0.3.133 BOT戦（試験版）。通常の対戦処理を使い、BOTの操作だけを自動化する。
+// BOT機能の段階的解放設定。対応完了後は true に切り替えるだけでUI制限を解除できる。
+const BOT_FEATURES={deckSelection:true,additionalPacks:false,rulePacks:false,randomizer:false};
+function enforceBotRestrictions(){
+ if(!botMatchMode)return;
+ if(!['standard1','standard2'].includes(gameSettings.deckId))gameSettings.deckId='standard1';
+ if(!BOT_FEATURES.additionalPacks)gameSettings.enabledPacks=(q('#onlineDebugPack1')?.checked?['pack1']:[]); // パック1は手動チェック、パック2は禁止
+ if(!BOT_FEATURES.rulePacks)gameSettings.enabledRulePacks=[];
+ if(!BOT_FEATURES.randomizer){gameSettings.randomizerEnabled=false;gameSettings.randomizerCount=0}
+ resolveActiveRuleCards();
+}
+function updateBotLobbyRestrictions(){
+ const rules=[
+  ['#onlineDebugDeckPreset',BOT_FEATURES.deckSelection],
+  ['#onlineDebugEditDeck',false],
+  ['#onlineDebugPack1',true],
+  ['#onlineDebugPack2',BOT_FEATURES.additionalPacks],
+  ['#onlineDebugRulesPack1',BOT_FEATURES.rulePacks],
+  ['#onlineDebugRCMode',BOT_FEATURES.rulePacks],
+  ['#onlineDebugRCChoice',BOT_FEATURES.rulePacks],
+  ['#onlineDebugRandomizer',BOT_FEATURES.randomizer],
+  ['#onlineDebugRandomizerCount',BOT_FEATURES.randomizer]
+ ];
+ for(const [selector,enabled] of rules){const el=q(selector);if(el)el.disabled=botMatchMode&&!enabled}
+ if(!botMatchMode)return;
+ const allowedBotDecks=new Set(['standard1','standard2']);
+ const deckChoices=q('#onlineDebugDeckPreset');
+ if(deckChoices){
+  for(const opt of deckChoices.options)opt.disabled=!allowedBotDecks.has(opt.value);
+  if(!allowedBotDecks.has(deckChoices.value)){deckChoices.value='standard1';deckChoices.dataset.selectedValue='standard1'}
+ }
+ const deck=q('#onlineDebugDeckPreset');if(deck&&!BOT_FEATURES.deckSelection){deck.value='standard1';deck.dataset.selectedValue='standard1'}
+ for(const [selector,enabled] of [['#onlineDebugPack1',true],['#onlineDebugPack2',BOT_FEATURES.additionalPacks],['#onlineDebugRulesPack1',BOT_FEATURES.rulePacks],['#onlineDebugRandomizer',BOT_FEATURES.randomizer]]){
+  const el=q(selector);if(el&&!enabled)el.checked=false;
+ }
+ const info=q('#botDeckRestrictionNotice');if(info)info.hidden=!botMatchMode;
+}
+const botIsPlayer=p=>botMatchMode&&p>0&&p<4;
+// Ver.0.3.151: 4人戦の合計VPと最高VPでBOTの評価段階を決定する。
+function botGameStage(){
+ const scores=Array.from({length:4},(_,p)=>totalVP(p));
+ const max=Math.max(...scores),sum=scores.reduce((a,b)=>a+b,0);
+ return max<=10&&sum<=30?0:max<=15&&sum<=60?1:2;
+}
+// スタンダード①の確定優先順位。数字が小さいほど優先する。
+const botStandardPriority={
+ '作戦計画書':[10,10,10],'人員調整書':[10,10,10],'制限令':[10,10,10],'特別許可書':[10,10,10],
+ '鉱山':[1,2,5],'農場':[1,2,5],'兵舎':[1,2,5],'司令室':[1,2,5],
+ '倉庫':[3,3,3],'教会':[2,4,5],
+ 'ナーロッパランド':[4,4,4],'領主会議':[2,1,1],'開拓ラッシュ':[7,5,2],
+ '大鉱山':[2,1,3],'大農園':[2,1,3],'要塞':[2,1,3],'大司令部':[2,1,3],
+ '飢饉':[3,4,8],'徴兵令':[3,4,8],'ナロパカルタ':[3,4,8],
+ 'オルフェンズ':[7,7,9],'納税':[2,4,8],'義賊':[3,4,8],
+ '交易場':[7,7,7],'スカウト':[2,6,10]
+};
+function botScoreCard(c){
+ const stage=botGameStage(),rank=botStandardPriority[c?.name];
+ if(rank){
+  // 優先度を主軸にし、終盤は勝利点を追加評価する。
+  return (11-rank[stage])*10+Math.max(0,+c.vp||0)*(stage===2?4:1);
+ }
+ const t=String(effectText(c)||'');
+ return (/命令書|毎ターン|ターン開始時/.test(t)?18:0)
+  +(/資金/.test(t)?10:0)+(/兵力|食料|資源/.test(t)?4:0)
+  +Math.max(0,+c.vp||0)*(stage===2?8:2);
+}
+// 目標カードを毎回再評価し、設置に不足する資源を優先する。
+function botCardNeeds(c){
+ const fixed={mine:{y:2},farm:{p:2},barracks:{r:2},commandroom:{y:3,r:1},church:{y:3,p:1},plan:{r:2},adjust:{r:4},restrict:{r:3},permit:{r:3},swordhunt:{r:4},graveyard:{p:1,r:2},landgrab:{y:2,p:2,r:2},bandit:{y:4,p:3},publicmarket:{y:1,p:1,r:1},famine:{p:3},laws:{y:5},scout:{y:2,p:2,r:2},swordhunt:{r:4},graveyard:{p:1,r:2},landgrab:{y:2,p:2,r:2},bandit:{y:4,p:3},publicmarket:{y:1,p:1,r:1}};
+ return fixed[c?.special]||{y:0,p:0,r:0};
+}
+function botTargetCard(){
+ const ps=powers[turn]||{y:0,p:0,r:0};
+ const cards=hands[turn]||[];
+ return cards.map(c=>{let need=botCardNeeds(c),missing=['y','p','r'].reduce((sum,k)=>sum+Math.max(0,(need[k]||0)-(ps[k]||0)),0);
+  // 実現可能性を強く評価。資源が揃っているカード、あと1～2資源で設置できるカードを優先。
+  let score=botScoreCard(c)-missing*16+(missing===0?22:0);
+  if(missing>5)score-=30;
+  return {c,need,missing,score};
+ }).sort((a,b)=>b.score-a.score)[0]||null;
+}
+function botChooseResourceColor(allowed){
+ const ps=powers[turn]||{y:0,p:0,r:0},target=botTargetCard();
+ const colors=allowed&&allowed.length?allowed:['y','p','r'];
+ const deficits=colors.map(k=>({k,n:Math.max(0,(target?.need[k]||0)-(ps[k]||0))}));
+ deficits.sort((a,b)=>b.n-a.n);
+ if(deficits[0]?.n>0)return deficits[0].k;
+ if(colors.includes('y')&&!hiredThisTurn&&(employees[turn]||[]).length<effectiveHireLimit()&&(ps.y||0)<5)return 'y';
+ return colors.slice().sort((a,b)=>(ps[a]||0)-(ps[b]||0))[0]||'y';
+}
+function botTryHire(){
+ if(hiredThisTurn||(employees[turn]||[]).length>=effectiveHireLimit())return false;
+ if(!isHireFree()&&(powers[turn].y<5||!unusedDice().length))return false;
+ const before=(employees[turn]||[]).length;
+ const oldViewer=viewer;viewer=turn;try{hireEmployee(unusedDice()[0]?.id)}finally{viewer=oldViewer}
+ if((employees[turn]||[]).length>before){botLog('通常雇用を実行');return true}
+ return false;
+}
+function botTryScout(){
+ if((employees[turn]||[]).length>=effectiveHireLimit())return false;
+ const i=(installed[turn]||[]).findIndex(c=>c.special==='scout');
+ if(i<0)return false;
+ const before=(employees[turn]||[]).length;
+ const oldViewer=viewer;viewer=turn;try{useScout(i)}finally{viewer=oldViewer}
+ if((employees[turn]||[]).length>before){botLog('スカウトで雇用');return true}
+ return false;
+}
+function botPreferredColor(){return botChooseResourceColor()}
+function enterBotMatch(){
+ botMatchMode=true;onlineDebugMode=true;debugLocalMode=false;onlineCharSelections=Array(4).fill(null);onlineDebugPlayers=['ニーア','BOT 1','BOT 2','BOT 3'];
+ updateDebugCommandVisibility();q('#entryScreen').classList.add('hidden');
+ // 既存のドラフト・資源選択画面を再利用する。キャラクターは人間の選択を優先する。
+ q('#onlineDebugLobby').classList.remove('hidden');renderOnlineDebugLobby();
+ enforceBotRestrictions();
+ const status=q('#onlineLobbyStatus');if(status)status.textContent='BOT戦：4人戦。キャラクター選択ではP1を先に確定してください。';
+ const add=q('#addDummyPlayer'),remove=q('#removeDummyPlayer');if(add)add.disabled=true;if(remove)remove.disabled=true;
+}
+function botFillCharacters(){
+ if(!botMatchMode||!onlineCharSelections[0])return;
+ const families=availableCharacterFamilies();
+ const used=new Set(onlineCharSelections.filter(Boolean).map(x=>x.familyId).filter(Boolean));
+ const charData=window.KOKORYO_CHARACTER_DATA||{};
+ const pool=families.filter(f=>!used.has(f.id));
+ for(let i=1;i<4;i++)if(!onlineCharSelections[i]){
+  if(!pool.length)break;
+  const f=pool.splice(Math.floor(Math.random()*pool.length),1)[0];
+  const versions=(f.versions||[]).filter(v=>(v.male&&charData[v.male])||(v.female&&charData[v.female]));
+  if(!versions.length)continue;
+  const v=versions[Math.floor(Math.random()*versions.length)];
+  const choices=[v.male,v.female].filter(id=>id&&charData[id]);
+  onlineCharSelections[i]={familyId:f.id,versionId:v.id,charId:choices[Math.floor(Math.random()*choices.length)]};
+  used.add(f.id);
+ }
+ onlineCharActivePlayer=0;onlineCharPending=null;renderOnlineCharacterScreen();
+}
+let botDraftTimer=null;
+function queueBotDraft(){
+ if(!botMatchMode||q('#onlineDraftScreen').classList.contains('hidden'))return;
+ if(botDraftTimer!==null)return;
+ botDraftTimer=setTimeout(()=>{
+  botDraftTimer=null;
+  if(!botMatchMode||q('#onlineDraftScreen').classList.contains('hidden'))return;
+  // 初期ドラフトは盤面VPではなく序盤のカード評価で選択する。
+  for(let p=1;p<onlineDebugPlayers.length;p++){
+   if(onlineDraftSelected[p])continue;
+   const pack=onlineDraftPacks[p]||[];
+   if(!pack.length)continue;
+   const ranked=pack.map((c,i)=>({i,rank:botStandardPriority[c?.name]?.[0]??10,vp:Number(c?.vp)||0})).sort((a,b)=>a.rank-b.rank||b.vp-a.vp);
+   const i=ranked[0].i;
+   onlineDraftHands[p].push(pack[i]);
+   pack.splice(i,1);
+   onlineDraftSelected[p]=true;
+  }
+  onlineDraftActivePlayer=0;
+  onlineDraftPendingIndex=null;
+  if(onlineDraftSelected.every(Boolean)){
+   if(onlineDraftRound===2){startOnlineResourceSelection();queueBotResources();return;}
+   const next=Array.from({length:onlineDebugPlayers.length},()=>[]);
+   for(let p=0;p<onlineDebugPlayers.length;p++)next[(p+1)%onlineDebugPlayers.length]=onlineDraftPacks[p].slice();
+   onlineDraftPacks=next;
+   onlineDraftRound++;
+   onlineDraftSelected=Array(onlineDebugPlayers.length).fill(false);
+  }
+  renderOnlineDraft();
+ },80);
+}
+function queueBotResources(){if(!botMatchMode)return;setTimeout(()=>{
+ let guard=0;while(botMatchMode&&!q('#onlineResourceScreen').classList.contains('hidden')&&botIsPlayer(onlineResourceActivePlayer)&&guard++<5){
+  let p=onlineResourceActivePlayer,v={y:0,p:0,r:0};
+  let best=(onlineDraftHands[p]||[]).slice().sort((a,b)=>botScoreCard(b)-botScoreCard(a))[0];
+  let color=/兵力/.test(best?.costText||'')?'r':/食料/.test(best?.costText||'')?'p':'y';
+  v[color]=Math.max(0,gameSettings.initialResources-2);v.y+=1;v.r+=1;onlineResourceChoices[p]=v;
+  confirmOnlineResources();
+ }
+},100)}
+function botLog(t){playLogAction('bot_decision',{decision:t});try{addDialog('🤖 P'+(turn+1)+' '+t)}catch(e){console.info('BOT action')}}
+function botResolveStart(){let guard=0;while(guard++<35){
+ if(pendingOverclockChoices.length){gainOverclockResource(botPreferredColor());continue}
+ if(pendingCastResourceChoices.length){gainCastResource(botPreferredColor());continue}
+ if(pendingLordResource>0){gainLordResource(botPreferredColor());continue}
+ if(pendingNanban>0){gainNanban(botPreferredColor());continue}
+ if(pendingTenkuCat>0){gainTenkuCat(botPreferredColor());continue}
+ break;
+}}
+// BOTも人間と同じ負債返済コストを支払う。
+// 通常時：サイコロ1個で最大2枚／命令書1枚で1枚。
+// 不況など返済倍率が上がる場合も、人間の返済UIと同じ計算を使う。
+// 4枚で返済開始し、0枚になるまで返済状態を維持する（プレイヤー別・対局別）。
+const botDebtRepayState={game:null,active:[]};
+function botTryRepayDebt(){if(depressionDebtLocked(turn))return false;
+ if(botDebtRepayState.game!==playLogStart){botDebtRepayState.game=playLogStart;botDebtRepayState.active=[];}
+ const debt=commandCounts[turn]||0;
+ if(debt<=0){botDebtRepayState.active[turn]=false;return false;}
+ if(!botDebtRepayState.active[turn]){
+  if(debt<4)return false;
+  botDebtRepayState.active[turn]=true;
+  botLog('負債4枚以上のため完済まで返済モード');
+ }
+ const mult=debtRepayMultiplier();
+ const dice=unusedDice();
+ if(dice.length){
+  const d=dice[0];
+  if(!useDie(d.id))return false;
+  const n=Math.min(Math.max(1,Math.floor(2/mult)),debt);
+  commandCounts[turn]-=n;komePlace+=n;
+  if(commandCounts[turn]===0)botDebtRepayState.active[turn]=false;
+  playLogAction('bot_debt_repayment',{player:turn+1,method:'die',die:d.value,returned:n});
+  botLog('サイコロ'+d.value+'を消費して負債'+n+'枚を返済');
+  return true;
+ }
+ if((breadHands[turn]||[]).length>=mult){
+  for(let i=0;i<mult;i++)breadDiscard.push(breadHands[turn].pop());
+  recycleBreadIfEmpty();
+  commandCounts[turn]--;komePlace++;
+  if(commandCounts[turn]===0)botDebtRepayState.active[turn]=false;
+  playLogAction('bot_debt_repayment',{player:turn+1,method:'command',spent:mult,returned:1});
+  botLog('命令書'+mult+'枚を消費して負債1枚を返済');
+  return true;
+ }
+ return false;
+}
+function botTryExchangeForInstall(){
+ const ps=powers[turn];if(!ps||!(hands[turn]||[]).length)return false;
+ const lord=CHARACTER_DATA[charOf(turn)]||{},staff=employeeUniqueAbilitiesEnabled(turn)?(employees[turn]||[]):[];
+ const rate=(lord.exchangeRate===1||staff.some(e=>e.exchangeRate===1||e.uniqueAbility==='等価交換')||copiedAbility==='等価交換')?1:2;
+ const colors=['y','p','r'];
+ for(const c of [...hands[turn]].sort((a,b)=>botScoreCard(b)-botScoreCard(a))){
+  // Only the known fixed-cost cards; other card-specific conditions remain in botTryInstall.
+  if(c.type!=='S')continue; // 通常カードの特殊条件を未確認のまま交換しない
+  const need=botCardNeeds(c),missing=colors.filter(k=>(need[k]||0)>(ps[k]||0));
+  if(missing.length!==1)continue;
+  const to=missing[0],shortage=(need[to]||0)-ps[to];
+  if(shortage!==1)continue;
+  const faces={mine:[1,2],farm:[3,4],barracks:[5,6],commandroom:[3,4],warehouse:[1,3,5],church:[1,4]}[c.special];
+  if(faces&&!unusedDice().some(d=>faces.includes(d.value))&&!(breadHands[turn]||[]).some(b=>b.value==='any'||faces.includes(b.value)))continue;
+  const from=colors.filter(k=>k!==to&&ps[k]>=rate+(need[k]||0)).sort((a,b)=>ps[b]-ps[a])[0];
+  if(!from)continue;
+  ps[from]-=rate;const gained=gainResource(turn,to,1,'exchange');
+  if(!gained){ps[from]+=rate;continue}
+  playLogAction('resource_exchange',{from,to,spent:rate,gained,actor:'bot',purpose:'install',card:playLogCard(c)});
+  botLog(c.name+'の設置を目指し'+cname(from)+'を'+cname(to)+'に交換');return true;
+ }
+ return false;
+}
+function botTryInstall(){
+ let h=hands[turn]||[],ps=powers[turn];
+ let order=h.map((c,i)=>({c,i,v:botScoreCard(c)})).sort((a,b)=>b.v-a.v);
+ for(let {c,i} of order){
+  if(c.type==='S'){
+   let need={y:0,r:0,p:0},vals=null;
+   if(c.special==='plan')need.r=2;else if(c.special==='adjust')need.r=4;
+   else if(['restrict','permit'].includes(c.special))need.r=3;
+   else if(c.special==='mine'){need.y=2;vals=[1,2]}
+   else if(c.special==='farm'){need.p=2;vals=[3,4]}
+   else if(c.special==='barracks'){need.r=2;vals=[5,6]}
+   else if(c.special==='commandroom'){need.y=3;need.r=1;vals=[3,4]}
+   else if(c.special==='warehouse')vals=[1,3,5];
+   else if(c.special==='church'){need.y=3;need.p=1;vals=[1,4]}
+   if(Object.keys(need).some(k=>ps[k]<need[k]))continue;
+   let choice='';if(vals){let d=unusedDice().find(x=>vals.includes(x.value));if(d)choice='d:'+d.id;
+    else {let ix=breadHands[turn].findIndex(x=>x.value==='any'||vals.includes(x.value));if(ix>=0)choice='b:'+ix;else continue}}
+   let before=hands[turn].length;installStandard(i,choice);if(hands[turn].length<before){botLog(c.name+'を設置');return true}continue;
+  }
+  // 通常カードの支払いに使える実ダイス／命令書を選択する。
+  if(c.type!=='S' && !['laws','scout'].includes(c.special)){
+   let requirements={
+    swordhunt:{res:{r:4},faces:[6]},graveyard:{res:{p:1,r:2},faces:[[4,5]]},
+    landgrab:{res:{y:2,p:2,r:2},faces:[2,5]},
+    bandit:{res:{y:4,p:3},faces:[null,null,null]},
+    publicmarket:{res:{y:1,p:1,r:1},faces:[null]},
+    famine:{res:{p:3},faces:[3,3,3]}
+   };
+   let spec=requirements[c.special];
+   if(spec && Object.entries(spec.res).every(([k,v])=>ps[k]>=v)){
+    let selected=[],used=new Set(),diceNow=unusedDice();
+    for(let face of spec.faces){
+     let faces=Array.isArray(face)?face:face===null?null:[face];
+     let d=diceNow.find(x=>!used.has('d:'+x.id)&&(!faces||faces.includes(x.value)));
+     if(d){selected.push('d:'+d.id);used.add('d:'+d.id);continue}
+     let b=(breadHands[turn]||[]).findIndex((x,j)=>!used.has('b:'+j)&&(x.value==='any'||!faces||faces.includes(x.value)));
+     if(b>=0){selected.push('b:'+b);used.add('b:'+b);continue}
+     break;
+    }
+    if(selected.length===spec.faces.length){
+     let before=hands[turn].length;
+     installNewNormal(i,selected);
+     if(hands[turn].length<before){botLog(c.name+'を設置');return true}
+    }
+   }
+  }
+  if(c.special==='paneteria' && totalHandCount(turn)>=handLimit(turn)){
+   let d=unusedDice()[0];if(d){installPaneteria(i,'d:'+d.id);botLog(c.name+'を設置');return true}
+  }
+  if(c.special==='laws'&&ps.y>=5){let before=hands[turn].length;installNewNormal(i,[]);if(hands[turn].length<before){botLog(c.name+'を設置');return true}}
+  if(c.special==='scout'&&ps.y>=2&&ps.p>=2&&ps.r>=2&&(employees[turn]||[]).length<effectiveHireLimit()){
+   let before=hands[turn].length;installNewNormal(i,[]);if(hands[turn].length<before){botLog(c.name+'を設置');return true}
+  }
+ }
+ return false;
+}
+function botDiscardOverflow(){let guard=0;while(handLimitNeedsDiscard(turn)&&guard++<30){
+ let h=hands[turn];if(h.length){let order=h.map((c,i)=>({i,v:botScoreCard(c)})).sort((a,b)=>a.v-b.v);discard.push(h.splice(order[0].i,1)[0]);continue}
+ if(breadHands[turn].length){breadDiscard.push(breadHands[turn].pop());continue}
+ if(commandCounts[turn]>0&&!depressionProtectsDebtAtHandLimit()&&!depressionDebtLocked(turn)){commandCounts[turn]--;komePlace++;continue}
+ break;
+}}
+// BOTの行動を段階表示。各BOTのターンを一括実行しない。
+const botPause=ms=>{const owner=turn,token=turnClockState.token;return new Promise(resolve=>setTimeout(resolve,ms)).then(()=>{if(!turnClockBotValid(owner,token))throw TURN_CLOCK_CANCEL})};
+// ナーロッパランドの全員選択が完了するまでBOTの行動を止める。
+// P1の選択は人間が操作し、BOTの選択はrenderParkChoiceで自動実行する。
+async function botWaitForParkChoice(actor){
+ while(botMatchMode&&turn===actor&&pendingParkPlayers.length&&!gameEnded){
+  renderParkChoice();
+  await botPause(250);
+ }
+}
+
+async function botExecuteTurn(){
+ if(botBusy||!botIsPlayer(turn)||gameEnded)return;
+ botBusy=true;const actor=turn,clockBotToken=turnClockState.token;
+ try{
+  viewer=0;renderGame();botLog('ターン開始');await botPause(900);if(!turnClockBotValid(actor,clockBotToken))return;
+  botResolveStart();renderGame();await botPause(500);if(!turnClockBotValid(actor,clockBotToken))return;await botWaitForParkChoice(actor);if(!turnClockBotValid(actor,clockBotToken))return;
+  for(let k=0;k<10&&turn===actor;k++){
+   if(!botTryInstall()){if(!botTryExchangeForInstall()||!botTryInstall())break;}
+   renderGame();await botWaitForParkChoice(actor);if(!turnClockBotValid(actor,clockBotToken))return;await botPause(950);if(!turnClockBotValid(actor,clockBotToken))return;
+  }
+  if(botTryScout()){renderGame();await botPause(700)}
+  if(botTryHire()){renderGame();await botPause(700)}
+  let guard=0;
+  while(turn===actor&&unusedDice().length&&guard++<20){
+   if(botTryRepayDebt()){renderGame();await botPause(750);if(!turnClockBotValid(actor,clockBotToken))return;continue;}
+   let acted=false;
+   const target=botTargetCard(),psNow=powers[turn]||{};
+   if(target&&target.missing>0&&target.missing<=3){
+    const deficit=['y','p','r'].filter(k=>(target.need[k]||0)>(psNow[k]||0));
+    const chosen=unusedDice().find(d=>deficit.includes(colorFor(d.value)));
+    if(chosen){const color=colorFor(chosen.value);if(useDie(chosen.id)){
+     gainResource(turn,color,1,'dice');botLog('設置目標「'+target.c.name+'」の不足資源を獲得');acted=true;
+    }}
+   }
+   if(!acted&&totalHandCount(turn)<handLimit(turn)){
+    let options=[...groups()].filter(([key,cards])=>cards.length+totalHandCount(turn)<=handLimit(turn));
+    options.sort((a,b)=>{
+     const ps=powers[turn];
+     const score=([,cards])=>{const c=cards[0],need=botCardNeeds(c),missing=['y','p','r'].reduce((n,k)=>n+Math.max(0,(need[k]||0)-(ps[k]||0)),0);return botScoreCard(c)-missing*7+Math.min(cards.length,2)*3};
+     return score(b)-score(a);
+    });
+    if(options.length){
+     // Preserve a matching die for cards that can be installed this turn.
+     const neededFaces=new Set();
+     for(const c of hands[turn]||[]){
+      const need=botCardNeeds(c);
+      if(['y','p','r'].some(k=>(powers[turn][k]||0)<(need[k]||0)))continue;
+      const faces={mine:[1,2],farm:[3,4],barracks:[5,6],commandroom:[3,4],warehouse:[1,3,5],church:[1,4]}[c.special];
+      if(faces&&!((breadHands[turn]||[]).some(b=>b.value==='any'||faces.includes(b.value))))faces.forEach(v=>neededFaces.add(v));
+     }
+     const diceChoices=unusedDice();
+     const d=diceChoices.find(x=>!neededFaces.has(x.value))||diceChoices[0];
+     const item=options[0],before=hands[turn].length;
+     takeMarket(item[0],d.id);
+     acted=hands[turn].length>before;
+     if(acted)botLog('公開場から'+item[1][0].name+'×'+item[1].length+'を獲得（出目'+d.value+'）');
+    }
+   }
+   if(!acted){
+    let d=unusedDice()[0];if(!d)break;
+    let choices=unusedDice(),preferred=botChooseResourceColor();
+    d=choices.find(x=>colorFor(x.value)===preferred)||choices[0];
+    let color=colorFor(d.value);useDie(d.id);gainResource(turn,color,1,'dice');
+    botLog('サイコロ'+d.value+'で資源を獲得');renderGame();
+   }
+   await botPause(750);if(!turnClockBotValid(actor,clockBotToken))return;await botWaitForParkChoice(actor);if(!turnClockBotValid(actor,clockBotToken))return;
+   if(botTryInstall()||(botTryExchangeForInstall()&&botTryInstall())){renderGame();await botWaitForParkChoice(actor);if(!turnClockBotValid(actor,clockBotToken))return;await botPause(950)}
+   if(botTryScout()){renderGame();await botPause(600)}
+   if(botTryHire()){renderGame();await botPause(600)}
+  }
+  for(let k=0;k<10&&turn===actor;k++){
+   if(!botTryInstall()){if(!botTryExchangeForInstall()||!botTryInstall())break;}
+   renderGame();await botWaitForParkChoice(actor);if(!turnClockBotValid(actor,clockBotToken))return;await botPause(950);if(!turnClockBotValid(actor,clockBotToken))return;
+  }
+  // サイコロを使い切った後も、命令書が余っていれば通常ルールで返済する。
+  for(let k=0;k<30&&turn===actor&&(commandCounts[turn]||0)>0;k++){
+   if(!botTryRepayDebt())break;
+   renderGame();await botPause(450);if(!turnClockBotValid(actor,clockBotToken))return;
+  }
+  await botWaitForParkChoice(actor);if(!turnClockBotValid(actor,clockBotToken))return;
+  await botWaitForParkChoice(actor);if(!turnClockBotValid(actor,clockBotToken))return;
+  if(!(hands[turn]||[]).length&&['y','p','r'].reduce((s,k)=>s+(powers[turn]?.[k]||0),0)>=12)botLog('手札0枚・資源12以上で終了：公開場の獲得可否を要確認');
+  botDiscardOverflow();botLog('ターン終了');renderGame();await botPause(1200);if(!turnClockBotValid(actor,clockBotToken))return;
+  if(!turnClockBotValid(actor,clockBotToken))return;viewer=0;completeEnd();
+ }catch(err){if(err===TURN_CLOCK_CANCEL||!turnClockBotValid(actor,clockBotToken))return;console.error('BOT turn failed',err);botLog('処理を中断しました');viewer=0;try{botDiscardOverflow();completeEnd()}catch(e){console.error(e)}}
+ finally{botBusy=false;if(botIsPlayer(turn)&&!gameEnded)queueBotTurn();else renderGame()}
+}
+function queueBotTurn(){
+ if(!botMatchMode||!botIsPlayer(turn)||gameEnded)return;
+ if(botTimer)clearTimeout(botTimer);
+ const owner=turn,token=turnClockState.token;botTimer=setTimeout(()=>{if(turnClockBotValid(owner,token))void botExecuteTurn()},650);
+}
+// ドラフトの確定ボタンは既存の選択処理を利用。
+const botDraftConfirmOriginal=confirmOnlineDraftPick;
+
+async function handleEntryJoin(){
+ const name=(q('#entryName')?.value||'').trim();
+ const pass=(q('#entryPass')?.value||'').trim();
+ const err=q('#entryError'); if(err)err.textContent='';
+ if(name==='ニーア' && pass==='オートマタ'){enterBotMatch();return;}
+ if(name==='バレンタイン' && pass==='オーバークロック'){enterOnlineDebugLobby();return;}
+ if(!name){if(err)err.textContent='名前を入力してください。';return;}
+ if(!pass){if(err)err.textContent='合言葉を入力してください。';return;}
+ await enterRealOnlineLobby(name,pass);
+}
+const initialEntryName=q('#entryName');if(initialEntryName)initialEntryName.value='';
+const entryJoin=q('#entryJoin');if(entryJoin)entryJoin.onclick=handleEntryJoin;
+const leaveRealLobbyBtn=q('#leaveRealLobby');if(leaveRealLobbyBtn)leaveRealLobbyBtn.onclick=leaveRealOnlineLobby;
+['#onlineCharLeaveRoom','#onlineDraftLeaveRoom','#onlineResourceLeaveRoom','#mainLeaveRoom'].forEach(sel=>{const b=q(sel);if(b)b.onclick=leaveRealOnlineLobby});
+const realLobbyEditDeck=q('#realLobbyEditDeck');if(realLobbyEditDeck)realLobbyEditDeck.onclick=()=>{if(isRealLobbyHost()&&realOnlineDeckId==='custom')openDeckEditor()};
+const realLobbySubmitDeckBtn=q('#realLobbySubmitDeckBtn');if(realLobbySubmitDeckBtn)realLobbySubmitDeckBtn.onclick=()=>submitRealLobbyDeck().catch(console.error);const realLobbyEditDeckBtn=q('#realLobbyEditDeck');if(realLobbyEditDeckBtn)realLobbyEditDeckBtn.onclick=openDeckEditor;
+const realRulePack1=q('#realRulePack1');if(realRulePack1)realRulePack1.onchange=()=>changeRealLobbyRule('pack1Enabled',realRulePack1.checked);const realRulePack2=q('#realRulePack2');if(realRulePack2)realRulePack2.onchange=()=>changeRealLobbyRule('pack2Enabled',realRulePack2.checked);const realRulesPack1=q('#realRuleRulesPack1');if(realRulesPack1)realRulesPack1.onchange=()=>changeRealLobbyRule('rulesPack1Enabled',realRulesPack1.checked);const realRCMode=q('#realRuleRCMode');if(realRCMode)realRCMode.onchange=()=>changeRealLobbyRule('ruleCardMode',realRCMode.value);const realRCChoice=q('#realRuleRCChoice');if(realRCChoice)realRCChoice.onchange=()=>changeRealLobbyRule('ruleCardChoice',realRCChoice.value);
+populateOnlineDebugDeckPreset();let dre=q('#onlineDebugRandomizer'),drc=q('#onlineDebugRandomizerCount');if(dre)dre.checked=!!gameSettings.randomizerEnabled;if(drc){drc.value=clampedRandomizerCount(gameSettings.randomizerCount);drc.max=implementedNormalCards().length;drc.disabled=false}function setDebugPackEnabled(id,on){let s=new Set(gameSettings.enabledPacks||[]);if(on)s.add(id);else s.delete(id);gameSettings.enabledPacks=[...s];refreshSetupDeckPreset();populateOnlineDebugDeckPreset();onlineCharSelections=Array(6).fill(null);onlineCharPending=null;}
+const debugPack1=q('#onlineDebugPack1');if(debugPack1){debugPack1.checked=gameSettings.enabledPacks.includes('pack1');debugPack1.onchange=()=>setDebugPackEnabled('pack1',debugPack1.checked)}
+const debugPack2=q('#onlineDebugPack2');if(debugPack2){debugPack2.checked=gameSettings.enabledPacks.includes('pack2');debugPack2.onchange=()=>setDebugPackEnabled('pack2',debugPack2.checked)}
+const debugRulesPack1=q('#onlineDebugRulesPack1');if(debugRulesPack1)debugRulesPack1.onchange=()=>{gameSettings.enabledRulePacks=debugRulesPack1.checked?['rules_pack1']:[];resolveActiveRuleCards()};const debugRCMode=q('#onlineDebugRCMode');if(debugRCMode)debugRCMode.onchange=()=>{gameSettings.ruleCardMode=debugRCMode.value;let c=q('#onlineDebugRCChoice');if(c)c.disabled=debugRCMode.value==='random';resolveActiveRuleCards()};fillRCSelect('#onlineDebugRCChoice');const debugRCChoice=q('#onlineDebugRCChoice');if(debugRCChoice)debugRCChoice.onchange=()=>{gameSettings.ruleCardChoice=debugRCChoice.value;resolveActiveRuleCards()};const onlineDebugDeckPreset=q('#onlineDebugDeckPreset');if(onlineDebugDeckPreset)onlineDebugDeckPreset.onchange=()=>{let v=onlineDebugDeckPreset.value;onlineDebugDeckPreset.dataset.selectedValue=v;if(String(v).startsWith('saved:')){let name=v.slice(6),d=getSavedDecks()[name];if(d){customDeck=cloneCustomDeck(d);gameSettings.deckId='custom';q('#deckSaveName').value=name}q('#onlineDebugEditDeck').disabled=false}else{gameSettings.deckId=v;q('#onlineDebugEditDeck').disabled=true}fillLegendSlotSelect('#onlineDebugRuleLegendSlots',gameSettings.deckId,gameSettings.legendSlots)};
+const onlineDebugEditDeck=q('#onlineDebugEditDeck');if(onlineDebugEditDeck){
+ onlineDebugEditDeck.disabled=false;
+ onlineDebugEditDeck.onclick=()=>{
+  let sel=q('#onlineDebugDeckPreset'),v=sel?.value||gameSettings.deckId;
+  if(String(v).startsWith('saved:')){
+   let name=String(v).slice(6),d=getSavedDecks()[name];
+   if(d){customDeck=cloneCustomDeck(d);gameSettings.deckId='custom';q('#deckSaveName').value=name}
+  }else{
+   let cfg=activeDeckConfig(v);
+   customDeck=cloneCustomDeck(cfg);
+   gameSettings.deckId='custom';
+   q('#deckSaveName').value='';
+  }
+  openDeckEditor();
+ }
+};
+const realLobbyCharacterSelectBtn=q('#realLobbyCharacterSelect');if(realLobbyCharacterSelectBtn)realLobbyCharacterSelectBtn.onclick=async()=>{if(!isRealLobbyHost())return;await broadcastRealPhase('character');setRealOnlinePhase('character');try{await trackRealLobbyPresence()}catch(e){console.error(e)}};
+q('#addDummyPlayer').onclick=()=>{if(onlineDebugPlayers.length>=6)return;onlineDebugPlayers.push('テストプレイヤー'+(onlineDebugPlayers.length+1));renderOnlineDebugLobby()};
+q('#removeDummyPlayer').onclick=()=>{if(onlineDebugPlayers.length>1)onlineDebugPlayers.pop();renderOnlineDebugLobby()};
+q('#leaveOnlineDebug').onclick=leaveOnlineDebugLobby;
+q('#onlineLobbyCharacterSelect').onclick=()=>{captureOnlineDebugLobbyPendingSettings();if(onlineDebugPlayers.length<2){const st=q('#onlineLobbyStatus');if(st)st.textContent='仮プレイヤーを追加すると複数人での共有選択を確認できます。';}openOnlineCharacterScreen()};
+q('#onlineCharBack').onclick=()=>{if(realOnlineCharacterMode||onlineDebugMode)confirmReturnToLobby();else closeOnlineCharacterScreen()};
+q('#onlineCharNext').onclick=async()=>{if(realOnlineCharacterMode){if(!realLobbyCharSelection||realLobbyCharReady)return;if(!realCharacterSelectionAllowed(realLobbyCharSelection)||realFamilyTaken(realLobbyCharSelection.familyId)){realLobbyCharSelection=null;realLobbyCharReady=false;realLobbyCharPending=null;await trackRealLobbyPresence().catch(console.error);renderRealOnlineCharacterScreen();alert('このキャラクターは他のプレイヤーが選択しています。別のキャラクターを選択してください。');return}realLobbyCharReady=true;try{await trackRealLobbyPresence()}catch(e){console.error(e);realLobbyCharReady=false}renderRealOnlineCharacterScreen();return}if(botMatchMode){if(!onlineCharSelections[0]){q('#onlineCharStatus').textContent='先にP1のキャラクターを選択してください。';return;}botFillCharacters();startOnlineDraft();queueBotDraft();return;}const n=onlineDebugPlayers.length;if(onlineCharSelections.slice(0,n).some(x=>!x))return;startOnlineDraft();autoCompleteOnlineDebugSetup();};q('#onlineDraftConfirm').onclick=()=>{if(realOnlineDraftMode)confirmRealOnlineDraftPick();else {if(botMatchMode&&onlineDraftActivePlayer!==0)return;confirmOnlineDraftPick();if(botMatchMode)queueBotDraft()}};q('#onlineResourceConfirm').onclick=()=>{if(realOnlineResourceMode)confirmRealOnlineResources();else {confirmOnlineResources();if(botMatchMode)queueBotResources()}};q('#onlineDraftReturnLobby').onclick=confirmReturnToLobby;q('#onlineResourceReturnLobby').onclick=confirmReturnToLobby;
+['#entryName','#entryPass'].forEach(sel=>{const el=q(sel);if(el)el.addEventListener('keydown',e=>{if(e.key==='Enter')handleEntryJoin()})});
+
+// Ver.3.9: resume check must run inside this scope so the saved-session helpers are accessible.
+setTimeout(()=>{const r=loadRealOnlineResume();if(r?.roomKey&&r?.name){const err=q('#entryError');if(err)err.textContent='前回のオンラインルームへ再接続しています...';enterRealOnlineLobby(r.name,'',r)}},0);
+
+function turnClockConvertNormalDie(dieId){let used=useDie(dieId);if(!used)return;let col=colorFor(used.value),lord=CHARACTER_DATA[charOf(turn)]||{},bonus=(lord.dieResourceBonus||0)+(employeeUniqueAbilitiesEnabled(turn)?(employees[turn]||[]):[]).reduce((n,e)=>n+(e.dieResourceBonus||0),0)+(copiedAbility==='神の恩恵'?1:0);gainResource(turn,col,1+bonus,'dieConvert');playLogAction('resource_conversion',{method:'die',dieValue:used.value,dieId:used.id,to:col,gained:1+bonus});addCommandUndo({kind:'dieConvert',dieId:used.id,dieValue:used.value,color:col,amount:1+bonus});renderGame()}
+// Shared offline / Bot / online chess clock. Online completion is host-authoritative.
+var turnClockState={remaining:[],active:null,token:0,lastCompleted:-1,ending:false,expiring:false,resolving:false,timeoutCommit:null,mono:0,wall:0};
+const TURN_CLOCK_INITIAL=180000,TURN_CLOCK_INCREMENT=30000;
+const TURN_CLOCK_CANCEL=Object.freeze({cancelledBotTurn:true});
+function turnClockVisible(){return !!q('#game')&&!q('#game').classList.contains('hidden')}
+function turnClockReset(){
+ if(typeof turnClockNet!=='undefined')turnClockResetNet();
+ if(!turnClockState)return;
+ const token=turnClockState.token+1;
+ turnClockState={remaining:Array(playerCount).fill(TURN_CLOCK_INITIAL),active:null,token,lastCompleted:-1,ending:false,expiring:false,resolving:false,timeoutCommit:null,mono:performance.now(),wall:Date.now()};
+ if(botTimer!==null){clearTimeout(botTimer);botTimer=null}
+ turnClockRender();
+}
+function turnClockAccount(){
+ const s=turnClockState;if(!s)return;
+ const mono=performance.now(),wall=Date.now();
+ // Safari may suspend interval callbacks. Use elapsed time, not tick counts.
+ const elapsed=Math.max(0,mono-s.mono,wall-s.wall);
+ if(s.active!==null&&!s.ending&&!s.expiring&&!gameEnded&&turnClockVisible())
+  s.remaining[s.active]=Math.max(0,s.remaining[s.active]-elapsed);
+ s.mono=mono;s.wall=wall;
+}
+function turnClockBeginTurn(){
+ const s=turnClockState;if(!s||gameEnded)return;
+ // Reroll/debug beginTurn on the same turn neither resets time nor grants increment.
+ if(s.active===turn){turnClockAccount();return}
+ while(s.remaining.length<playerCount)s.remaining.push(TURN_CLOCK_INITIAL);
+ s.active=turn;s.token++;s.mono=performance.now();s.wall=Date.now();
+ turnClockRender();
+}
+function turnClockStop(){if(!turnClockState)return;turnClockAccount();turnClockState.active=null;turnClockRender()}
+function turnClockLeaseValid(owner,token){const s=turnClockState;return !!s&&s.active===owner&&turn===owner&&s.token===token&&!gameEnded}
+function turnClockBotValid(owner,token){return turnClockLeaseValid(owner,token)&&!turnClockState.expiring}
+function turnClockRender(){
+ const s=turnClockState;if(!s)return;
+ let box=q('#turnClockPanel');
+ if(!box){box=document.createElement('section');box.id='turnClockPanel';box.className='notice';box.setAttribute('aria-label','プレイヤー別持ち時間');q('#game')?.prepend(box)}
+ if(!box)return;
+ box.innerHTML='<strong>持ち時間</strong> <span class="small">自分のターンのみ消費・終了時＋30秒（上限180秒）</span>';
+ const row=document.createElement('div');row.className='row';row.style.cssText='justify-content:flex-start;gap:8px;flex-wrap:wrap;margin-top:6px';
+ for(let p=0;p<playerCount;p++){
+  const secs=Math.ceil((s.remaining[p]??TURN_CLOCK_INITIAL)/1000),el=document.createElement('span');
+  el.className='power';el.dataset.clockPlayer=p;el.dataset.seconds=secs;
+  const active=s.active===p&&!gameEnded;el.dataset.active=String(active);
+  el.style.cssText=active?'border:2px solid #a36d00;background:#fff1b8;font-weight:700':'';
+  el.textContent='P'+(p+1)+' '+secs+'秒 ('+Math.floor(secs/60)+':'+String(secs%60).padStart(2,'0')+')'+(active?' ▶':'');row.appendChild(el);
+ }
+ box.appendChild(row);
+}
+function turnClockTick(){
+ if(realOnlineMainMode)turnClockNetworkTick();
+ const s=turnClockState;if(!s)return;
+ turnClockAccount();turnClockRender();
+ if(s.active!==null&&s.remaining[s.active]<=0&&!s.expiring&&!s.ending&&!gameEnded&&turnClockVisible())turnClockExpire(s.token);
+}
+function turnClockPrompt(message,initial){
+ if(turnClockState?.resolving)return initial??'1';
+ const result=window.prompt(message,initial);turnClockAccount();
+ if(turnClockState?.active!==null&&turnClockState.remaining[turnClockState.active]<=0){queueMicrotask(turnClockTick);return null}
+ return result;
+}
+function turnClockConfirm(message){
+ if(turnClockState?.resolving)return false; // optional acquisitions are declined
+ const result=window.confirm(message);turnClockAccount();
+ if(turnClockState?.active!==null&&turnClockState.remaining[turnClockState.active]<=0){queueMicrotask(turnClockTick);return false}
+ return result;
+}
+function turnClockResolvePending(owner,token){
+ for(const overlay of document.querySelectorAll('[data-turn-clock-payment]'))overlay.__turnClockCancel?.();
+ legendPaymentPending=false;
+ for(let guard=0;guard<10000;guard++){
+  if(!turnClockLeaseValid(owner,token))return;
+  const modal=q('#legendChoiceModal');
+  if(modal&&!modal.classList.contains('hidden')){
+   const title=q('#legendChoiceTitle').textContent;
+   if(title==='オルフェンズ'||title==='消費する資源')q('#legendChoiceCancel').click();
+   else{
+    // Bot start choices were rendered from the human viewer, with controls disabled.
+    // The timeout resolver now owns this turn and may complete that mandatory choice.
+    if(title==='パーフェクト・イミテーション')
+     for(const el of q('#legendChoiceCards').querySelectorAll('select,button'))el.disabled=false;
+    const pick=q('#legendChoiceCards .selectable-card')||q('#legendChoiceCards button:not(:disabled)');
+    if(pick)pick.click();else q('#legendChoiceCancel').click();
+   }
+   continue;
+  }
+  if(pendingSSRBonus>0){gainSSRDie(1);continue}
+  const color=['y','p','r'].find(c=>eraGainAllowed(owner,c,'effect'));
+  if(!color){
+   // Prohibited resource gains must not leave an unfinishable selection.
+   pendingLordResource=0;pendingNanban=0;pendingTenkuCat=0;pendingCastResourceChoices=[];pendingOverclockChoices=[];
+  }else{
+   if(pendingOverclockChoices.length){gainOverclockResource(color);continue}
+   if(pendingCastResourceChoices.length){gainCastResource(color);continue}
+   if(pendingLordResource>0){gainLordResource(color);continue}
+   if(pendingNanban>0){gainNanban(color);continue}
+   if(pendingTenkuCat>0){gainTenkuCat(color);continue}
+  }
+  if(turnStartPostPending){renderGame();continue}
+  if(pendingParkPlayers.length){
+   const key=groups().keys().next().value;
+   if(key===undefined)finishEmptyParkChoices();else applyOnlineParkPick(pendingParkPlayers[0],key);
+   continue;
+  }
+  nightEscapePostAvailable=false;return;
+ }
+ throw new Error('持ち時間終了時の未解決選択が安全上限を超えました。');
+}
+function turnClockDiscardOverflow(owner){
+ // Uniformly choose among both normal cards and command sheets; debt is excluded.
+ while(totalHandCount(owner)>handLimit(owner)){
+  const n=hands[owner].length+breadHands[owner].length;if(!n)break;
+  const i=Math.min(n-1,Math.floor(Math.random()*n));
+  if(i<hands[owner].length)discard.push(hands[owner].splice(i,1)[0]);
+  else breadDiscard.push(breadHands[owner].splice(i-hands[owner].length,1)[0]);
+ }
+ recycleBreadIfEmpty();
+ if(totalHandCount(owner)>handLimit(owner)&&!depressionProtectsDebtAtHandLimit()&&!depressionDebtLocked(owner)){
+  const returned=Math.min(totalHandCount(owner)-handLimit(owner),commandCounts[owner]||0);
+  commandCounts[owner]-=returned;komePlace+=returned;
+ }
+}
+function turnClockCloseChoices(){
+ for(const overlay of document.querySelectorAll('[data-turn-clock-payment]'))overlay.__turnClockCancel?.();
+ legendPaymentPending=false;
+ for(const modal of document.querySelectorAll('.imgmodal')){
+  modal.classList.add('hidden');
+ }
+ for(const selector of ['#legendChoiceCards','#parkChoiceCards']){
+  const grid=q(selector);if(!grid)continue;
+  for(const el of grid.querySelectorAll('*'))el.onclick=null;
+  grid.replaceChildren();
+ }
+ if(q('#legendChoiceCancel'))q('#legendChoiceCancel').onclick=null;
+ q('#limit')?.classList.add('hidden');
+ pendingBreadAnyIndex=null;pendingResourceFrom=null;clearMarketUndo();
+}
+function turnClockExpire(token){
+ if(realOnlineMainMode&&!isRealLobbyHost())return;
+ const s=turnClockState,owner=s?.active;
+ if(!s||s.expiring||s.ending||owner===null||!turnClockLeaseValid(owner,token))return;
+ s.expiring=true;s.resolving=true;s.remaining[owner]=0;
+ if(botTimer!==null){clearTimeout(botTimer);botTimer=null}
+ const oldViewer=viewer;
+ try{
+  viewer=owner;
+  if(realOnlineMainMode){
+   turnClockNet.completing=true;
+   turnClockRestoreChoice();
+   if(turnClockStartPending)beginTurnForClockTimeout();
+  }
+  turnClockResolvePending(owner,token);
+  if(!turnClockLeaseValid(owner,token))return;
+  const totals={y:0,p:0,r:0};
+  for(const die of [...unusedDice()]){
+   const color=colorFor(die.value),before=powers[owner][color];
+   turnClockConvertNormalDie(die.id);
+   totals[color]+=Math.max(0,powers[owner][color]-before);
+  }
+  // Resource-dependent VP must trigger the final round before advancing turn.
+  checkEndgameTrigger();
+  turnClockDiscardOverflow(owner);turnClockCloseChoices();
+  addDialog('⏱ P'+(owner+1)+'の持ち時間切れ：未使用ダイスを変換（資金'+totals.y+'・食料'+totals.p+'・兵力'+totals.r+'）、手札上限を自動処理しました。');
+  playLogAction('turn_clock_timeout',{player:owner+1,resources:totals});
+  viewer=oldViewer;s.resolving=false;s.expiring=false;s.timeoutCommit=token;
+  completeEnd();
+ }finally{
+  s.resolving=false;s.expiring=false;
+  if(realOnlineMainMode){turnClockNet.completing=false;viewer=oldViewer;turnClockCommit();turnClockStartOwnTurn()}
+  viewer=botMatchMode?0:viewer;turnClockRender();
+ }
+}
+function completeEnd(){
+ if(realOnlineMainMode&&!turnClockNet?.completing){turnClockRequestEnd();return}
+ const s=turnClockState;
+ if(!s)return turnClockOriginalCompleteEnd();
+ if(gameEnded||s.active===null||s.ending||s.lastCompleted===s.token)return;
+ turnClockAccount();
+ if(s.remaining[s.active]<=0&&s.timeoutCommit!==s.token){turnClockExpire(s.token);return}
+ const owner=s.active;
+ s.ending=true;s.lastCompleted=s.token;s.timeoutCommit=null;
+ s.remaining[owner]=Math.min(TURN_CLOCK_INITIAL,s.remaining[owner]+TURN_CLOCK_INCREMENT);
+ s.active=null;
+ try{return turnClockOriginalCompleteEnd()}finally{s.ending=false;turnClockRender()}
+}
+// Stop a late user click before it can act on an expired player's turn.
+document.addEventListener('click',event=>{
+ if(!turnClockState||turnClockState.active===null||turnClockState.resolving||!turnClockVisible())return;
+ if(!event.target.closest?.('#game,.imgmodal'))return;
+ turnClockAccount();
+ if(turnClockState.expiring||turnClockState.remaining[turnClockState.active]<=0){event.preventDefault();event.stopImmediatePropagation();turnClockTick()}
+},true);
+setInterval(turnClockTick,200);
+document.addEventListener('visibilitychange',turnClockTick);
+window.addEventListener('pageshow',turnClockTick);
+turnClockRender();
+
+// Realtime is a transport, not a shared server clock. Only the elected room HOST
+// commits game states/ends. Guests submit fenced proposals; device timestamps
+// never decide another player's deadline. Keep all times in milliseconds.
+var turnClockNet=null,turnClockStartPending=false,turnClockChoice=null;
+function turnClockResetNet(){turnClockNet=null;turnClockStartPending=false;turnClockChoice=null}
+function turnClockNonce(){return globalThis.crypto?.randomUUID?.()||String(Date.now())+'-'+Math.random().toString(36).slice(2)}
+function turnClockClone(x){return JSON.parse(JSON.stringify(x))}
+function turnClockInitializeAuthority(){
+ turnClockNet={match:turnClockNonce(),epoch:turnClockNonce(),host:realLobbyHostId,revision:1,pulse:0,seq:0,seen:{},initial:true,ready:true,waitingEnd:false,completing:false,lastPulse:performance.now(),source:'',ack:0};
+}
+function turnClockSnapshot(){
+ if(!turnClockNet)return null;
+ turnClockAccount();
+ return {protocol:1,match:turnClockNet.match,epoch:turnClockNet.epoch,host:turnClockNet.host,revision:turnClockNet.revision,pulse:turnClockNet.pulse,
+  source:turnClockNet.source,ack:turnClockNet.ack,seen:{...turnClockNet.seen},barrier:turnClockNet.barrier||0,remaining:[...turnClockState.remaining],active:turnClockState.active,token:turnClockState.token,savedAt:Date.now()};
+}
+function turnClockValidMetadata(c){
+ return !!c&&c.protocol===1&&typeof c.match==='string'&&typeof c.epoch==='string'&&c.host===realLobbyHostId&&
+  Number.isSafeInteger(c.revision)&&c.revision>=1&&Number.isSafeInteger(c.token)&&
+  Array.isArray(c.remaining)&&c.remaining.length>=2&&c.remaining.length<=6&&c.remaining.every(n=>Number.isFinite(n)&&n>=0&&n<=TURN_CLOCK_INITIAL)&&
+  (c.active===null||(Number.isInteger(c.active)&&c.active>=0&&c.active<c.remaining.length));
+}
+function turnClockImport(c){
+ const s=turnClockState;
+ s.remaining=[...c.remaining];s.active=c.active;s.token=c.token;
+ s.mono=performance.now();s.wall=Date.now();s.lastCompleted=-1;s.ending=false;s.expiring=false;s.resolving=false;s.timeoutCommit=null;
+}
+function turnClockAcceptSnapshot(st){
+ if(turnClockNet?.applyingAction)return true;
+ const c=st.turnClock;
+ if(!turnClockValidMetadata(c)){
+  // Never silently run a timed room with an old, un-timed client snapshot.
+  if(realLobbyPhase==='main')setRealLobbyConnection('持ち時間対応版へ全員更新し、新しい対戦を開始してください。','error');
+  return false;
+ }
+ if(c.remaining.length!==st.playerCount||(st.gameEnded?c.active!==null:c.active!==st.turn))return false;
+ const old=turnClockNet;
+ if(old&&realOnlineMainMode&&old.match!==c.match)return false;
+ if(old&&old.epoch===c.epoch&&(c.revision<old.revision||(realOnlineMainMode&&c.revision===old.revision&&!old.initial)))return false;
+ if(old&&old.host===c.host&&old.epoch!==c.epoch)return false;
+ const changed=!old||old.epoch!==c.epoch||turnClockState.token!==c.token;
+ if(changed)turnClockCloseChoices();
+ turnClockNet={...old,match:c.match,epoch:c.epoch,host:c.host,revision:c.revision,pulse:c.pulse||0,seq:Math.max(old?.seq||0,c.seen?.[realLobbyClientId]||0),seen:{...(c.seen||{})},barrier:c.barrier||0,initial:false,ready:true,waitingEnd:false,completing:false,source:c.source||'',ack:c.ack||0,lastPulse:performance.now()};
+ turnClockImport(c);
+ // On HOST reload only, account for the time since its own saved checkpoint.
+ // A guest's absolute wall clock is never compared with the HOST wall clock.
+ if(!old&&isRealLobbyHost()&&c.active!==null&&Number.isFinite(c.savedAt))
+  turnClockState.remaining[c.active]=Math.max(0,turnClockState.remaining[c.active]-Math.max(0,Date.now()-c.savedAt));
+ return true;
+}
+function turnClockAfterSnapshot(){
+ if(!realOnlineMainMode||!turnClockNet)return;
+ if(viewer!==turn)q('#legendChoiceModal')?.classList.add('hidden');
+ turnClockRender();turnClockStartOwnTurn();
+}
+function turnClockRestoreChoice(){
+ const choice=turnClockChoice;
+ if(!choice||viewer!==turn)return;
+ q('#legendChoiceModal')?.classList.add('hidden');
+ if(choice.kind==='copy'){
+  if(!resolveAbilityCopyLegend(()=>continueBeginTurn())){turnClockChoice=null;continueBeginTurn()}
+ }
+ else if(choice.kind==='genesis')resolveEggHarp(choice.owner,choice.n);
+ else if(choice.kind==='yggdrasil')resolveMayQueen(choice.qn,choice.repeat);
+}
+function turnClockStartOwnTurn(){
+ if(!realOnlineMainMode||!turnClockNet?.ready||turnClockNet.completing||gameEnded||realMyPlayerIndex()!==turn)return;
+ if(turnClockStartPending){beginTurn();turnClockPublishAction(false)}
+ else if(turnClockChoice&&q('#legendChoiceModal')?.classList.contains('hidden'))turnClockRestoreChoice();
+}
+function beginTurnForClockTimeout(){
+ const completing=turnClockNet.completing;
+ turnClockNet.completing=false;
+ try{beginTurn()}finally{turnClockNet.completing=completing}
+}
+function turnClockSend(event,payload){
+ if(!realLobbyChannel)return;
+ // Channel.send can reject or return a non-ok result (e.g. Safari reconnect).
+ Promise.resolve(realLobbyChannel.send({type:'broadcast',event,payload})).then(result=>{
+  if(result&&result!=='ok')setRealLobbyConnection('通信待ち：再接続後に状態を確認します。','error');
+ }).catch(error=>{console.error('持ち時間同期に失敗',error);setRealLobbyConnection('同期に失敗しました。再接続してください。','error')});
+}
+function turnClockCommit(source='',ack=0){
+ const n=turnClockNet;if(!n||!isRealLobbyHost()||!realOnlineMainMode)return;
+ n.revision++;n.pulse++;n.source=source;n.ack=ack;n.waitingEnd=false;
+ turnClockSend('main_state',{host:realLobbyClientId,state:turnClockClone(realMainSnapshot())});
+ saveRealOnlineResume();
+}
+function turnClockResendState(){
+ if(isRealLobbyHost()&&turnClockNet?.ready)
+  turnClockSend('main_state',{host:realLobbyClientId,state:turnClockClone(realMainSnapshot())});
+}
+function turnClockPublishAction(end){
+ const n=turnClockNet;
+ if(!realOnlineMainMode||!n?.ready||n.waitingEnd||realMyPlayerIndex()!==turn)return;
+ const payload={client:realLobbyClientId,match:n.match,epoch:n.epoch,token:turnClockState.token,revision:n.revision,seq:++n.seq,end:!!end,state:turnClockClone(realMainSnapshot())};
+ if(end){n.waitingEnd=true;n.pendingEnd=payload;n.lastRetry=performance.now()}
+ if(isRealLobbyHost())turnClockReceiveAction(payload);else turnClockSend('clock_action',payload);
+}
+function turnClockRequestEnd(){
+ if(!turnClockNet?.ready||turnClockNet.waitingEnd||gameEnded)return;
+ turnClockPublishAction(true);
+}
+function turnClockReceiveAction(payload){
+ const n=turnClockNet,s=turnClockState;
+ if(!isRealLobbyHost()||!realOnlineMainMode||!n?.ready||n.completing||!payload)return;
+ if(payload.match!==n.match||payload.epoch!==n.epoch||!realMainRoster.some(p=>p.client_id===payload.client)||!Number.isSafeInteger(payload.seq)||payload.seq<1)return;
+ if(payload.token!==s.token||payload.seq<=(n.seen[payload.client]||0)||gameEnded&&(payload.client!==realLobbyClientId||!payload.state?.gameEnded)){
+  if(payload.end)turnClockResendState();return;
+ }
+ if(payload.state?.turn!==turn||payload.client!==realMainRoster[turn]?.client_id)return;
+ if((payload.revision||0)<(n.barrier||0)){turnClockResendState();return}
+ turnClockAccount();
+ if(s.remaining[turn]<=0){turnClockExpire(s.token);return}
+ n.seen[payload.client]=payload.seq;
+ // Ignore the submitted clock. Only the HOST's monotonic elapsed time is used.
+ if(payload.client!==realLobbyClientId){
+  n.applyingAction=true;
+  try{applyRealMainSnapshot(turnClockClone(payload.state))}finally{n.applyingAction=false}
+ }
+ if(gameEnded)turnClockStop();
+ if(payload.end){
+  const oldViewer=viewer;n.completing=true;viewer=turn;
+  try{completeEnd()}finally{n.completing=false;viewer=oldViewer}
+ }
+ renderGame();turnClockCommit(payload.client,payload.seq);turnClockStartOwnTurn();
+}
+function turnClockRequestPark(player,key){
+ const n=turnClockNet;if(!n?.ready||realMyPlayerIndex()!==player)return;
+ const payload={client:realLobbyClientId,match:n.match,epoch:n.epoch,token:turnClockState.token,player,key};
+ if(isRealLobbyHost())turnClockReceivePark(payload);else turnClockSend('park_pick',payload);
+}
+function turnClockReceivePark(payload){
+ const n=turnClockNet;if(!isRealLobbyHost()||!realOnlineMainMode||!n?.ready||!payload||n.completing||gameEnded)return;
+ if(payload.match!==n.match||payload.epoch!==n.epoch||payload.token!==turnClockState.token||payload.client!==realMainRoster[payload.player]?.client_id)return;
+ turnClockAccount();if(turnClockState.remaining[turn]<=0){turnClockExpire(turnClockState.token);return}
+ if(applyOnlineParkPick(payload.player,payload.key)){turnClockCommit();n.barrier=n.revision}
+}
+function turnClockReceiveState(payload){
+ if(!payload?.state||payload.host!==realLobbyHostId)return;
+ const c=payload.state.turnClock,n=turnClockNet;
+ if(!turnClockValidMetadata(c))return;
+ if(n&&c.match===n.match&&c.epoch===n.epoch){
+  if(c.revision<=n.revision)return;
+  // Do not overwrite local, not-yet-acknowledged actions with an earlier echo.
+  // Ending is never speculative: a new lease is always installed from the HOST.
+  if(c.token===turnClockState.token&&c.source===realLobbyClientId){
+   n.revision=c.revision;n.pulse=c.pulse;
+   if(!n.waitingEnd)turnClockImport(c);
+   saveRealOnlineResume();return;
+  }
+ }
+ applyRealMainSnapshot(payload.state);
+}
+function turnClockReceivePulse(payload){
+ const n=turnClockNet,c=payload?.clock;
+ if(!n||isRealLobbyHost()||payload.host!==realLobbyHostId||!turnClockValidMetadata(c)||c.match!==n.match)return;
+ if(c.epoch!==n.epoch||c.token!==turnClockState.token){
+  if(performance.now()-(n.lastSyncRequest??-Infinity)>=1000){n.lastSyncRequest=performance.now();turnClockSend('state_sync_request',{clientId:realLobbyClientId})}
+  return;
+ }
+ if(c.pulse<=n.pulse)return;
+ n.pulse=c.pulse;
+ // Receipt is anchored to this device's monotonic clock, not HOST Date.now().
+ turnClockImport(c);turnClockRender();
+}
+function turnClockHostChanged(){
+ const n=turnClockNet;if(!realOnlineMainMode||!n||n.host===realLobbyHostId)return;
+ turnClockAccount();n.waitingEnd=false;
+ if(isRealLobbyHost()){
+  n.host=realLobbyHostId;n.epoch=turnClockNonce();n.revision=1;n.pulse=0;n.seen={};n.ready=true;
+  turnClockCommit();turnClockStartOwnTurn();
+ }else n.ready=false;
+}
+function turnClockNetworkTick(){
+ const n=turnClockNet;if(!n)return;
+ if(n.host!==realLobbyHostId)turnClockHostChanged();
+ if(n.waitingEnd&&n.pendingEnd&&performance.now()-(n.lastRetry||0)>=1000){
+  n.lastRetry=performance.now();turnClockSend('clock_action',n.pendingEnd);
+ }
+ if(!isRealLobbyHost()||!n.ready||gameEnded)return;
+ turnClockAccount();
+ if(performance.now()-n.lastPulse>=1000){
+  n.lastPulse=performance.now();n.pulse++;
+  turnClockSend('clock_pulse',{host:realLobbyClientId,clock:turnClockSnapshot()});
+  saveRealOnlineResume();
+ }
+}
+// Freeze mutations while the HOST acknowledges an end or changes authority.
+document.addEventListener('click',event=>{
+ if(!realOnlineMainMode||!turnClockNet||turnClockState.resolving)return;
+ if(!event.target.closest?.('#game,.imgmodal,#limit'))return;
+ if(!turnClockNet.ready||turnClockNet.waitingEnd){event.preventDefault();event.stopImmediatePropagation()}
+},true);
+
+})();
+const q=s=>document.querySelector(s);
+q('#cardDetailModal').onclick=e=>{if(e.target===q('#cardDetailModal'))q('#cardDetailModal').classList.add('hidden')};q('#installModal').onclick=e=>{if(e.target===q('#installModal'))q('#installModal').classList.add('hidden')};
+
+
+// Ver.3.15: オンラインロビーのルール設定。
+[['#realRuleWinVP','winVP'],['#realRuleMarketTypes','marketTypes'],['#realRuleInitialResources','initialResources'],['#realRuleHireLimit','hireLimit'],['#realRuleLegendSlots','legendSlots']].forEach(([sel,key])=>{q(sel)?.addEventListener('change',e=>changeRealLobbyRule(key,e.target.value))});
+q('#realRuleRandomizer')?.addEventListener('change',e=>changeRealLobbyRule('randomizerEnabled',e.target.checked));q('#realRuleRandomizerCount')?.addEventListener('input',e=>{if(isRealLobbyHost())realOnlineRules.randomizerCount=Math.max(0,Math.floor(Number(e.target.value)||0))});q('#realRuleRandomizerCount')?.addEventListener('change',e=>changeRealLobbyRule('randomizerCount',e.target.value));
+q('#settingMarketTypes')?.addEventListener('change',e=>{let n=Math.max(1,Math.floor(Number(e.target.value)||8));e.target.value=n;gameSettings.marketTypes=n;syncMarketTargetUI()});
+q('#onlineDebugRuleMarketTypes')?.addEventListener('change',e=>{let n=Math.max(1,Math.floor(Number(e.target.value)||8));e.target.value=n;gameSettings.marketTypes=n;syncMarketTargetUI()});
+q('#onlineDebugRandomizer')?.addEventListener('change',e=>{gameSettings.randomizerEnabled=e.target.checked;q('#onlineDebugRandomizerCount').disabled=false});q('#onlineDebugRandomizerCount')?.addEventListener('input',e=>{let raw=Math.max(0,Math.floor(Number(e.target.value)||0));gameSettings.randomizerCount=raw;e.target.max=implementedNormalCards().length});q('#onlineDebugRandomizerCount')?.addEventListener('change',e=>{let n=clampedRandomizerCount(e.target.value);e.target.value=n;gameSettings.randomizerCount=n});q('#onlineDebugRuleWinVP')?.addEventListener('input',e=>{const n=Math.floor(Number(e.target.value));if(Number.isFinite(n)&&n>=1)gameSettings.winVP=n});[['#onlineDebugRuleWinVP','winVP',1],['#onlineDebugRuleMarketTypes','marketTypes',1],['#onlineDebugRuleInitialResources','initialResources',0],['#onlineDebugRuleHireLimit','hireLimit',0],['#onlineDebugRuleLegendSlots','legendSlots',1]].forEach(([sel,key,min])=>q(sel)?.addEventListener('change',e=>{let n=Math.max(min,Math.floor(Number(e.target.value)||min));e.target.value=n;gameSettings[key]=n;if(key==='marketTypes')syncMarketTargetUI()}));
